@@ -67,6 +67,28 @@ per-lead status (new → contacted → replied → won/lost/ignored), notes and 
 * **Password**: set `LEABEE_PASSWORD` in `.env` to require HTTP Basic login (any username). Do this before exposing it online.
 * **Run anywhere**: `run.bat` on Windows, or `docker compose up -d` (data persists in `./data`).
 
+## Deploy on Vercel (free Hobby plan)
+
+Vercel functions can't run long collections, keep background threads or write to disk, so on Vercel Leabee is a
+**password-protected, read-only dashboard over a snapshot of your database**. Collection runs elsewhere (your PC or the
+free GitHub Actions workflow in `.github/workflows/refresh.yml`) and each new snapshot redeploys automatically.
+Vercel Hobby is for personal, non-commercial use; check their terms for yours.
+
+1. **Make the snapshot**: `python -m leabee snapshot` writes `vercel_data/leads.sqlite` (about 3 MB; ignored and low-score leads removed).
+2. **Push to a PRIVATE GitHub repo** (the snapshot contains lead data): `git add -f vercel_data/leads.sqlite && git commit -m snapshot && git push`.
+   `.env` and `data/` are git-ignored and never uploaded.
+3. **Import the repo in Vercel** (vercel.com/new). No build settings needed: `vercel.json` routes everything to `api/index.py`.
+4. **Set Environment Variables** in the Vercel project: `LEABEE_PASSWORD` (required, the site refuses to serve without it;
+   log in with any username). Optional: `LEABEE_YOUR_NAME` for reply drafts.
+5. **Automatic refresh (optional)**: in the GitHub repo add secrets `TINYFISH_API_KEY` (and optionally `ANTHROPIC_API_KEY`).
+   The workflow collects every 6 hours, commits a new snapshot and Vercel redeploys. Reddit is excluded there because it
+   often blocks datacenter IPs; run it locally with `python -m leabee collect -s reddit`, then re-snapshot and push.
+
+CLI alternative: `npm i -g vercel`, then `vercel --prod` in this folder (the `.vercelignore` excludes secrets and local data).
+
+Limits: edits (status, notes, follow-ups, board moves, saved filters) and the Collect button are disabled on Vercel and return
+a clear message; do that work locally, where everything is saved. For a fully editable hosted version, use Docker/a small VPS instead.
+
 ## How leads are judged
 
 * **Buyer vs seller**: "looking for a developer / need someone to build / [HIRING] / willing to pay…" count; "[FOR HIRE] / I will build / my services /
@@ -86,5 +108,6 @@ unsubscribe line if you email, and follow GDPR/CAN-SPAM/CASL. Don't mass-DM; Red
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest -q
 ```

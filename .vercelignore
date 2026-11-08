@@ -1,0 +1,15 @@
+.env
+.env.*
+data/
+tests/
+.git/
+.github/
+.claude/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.csv
+*.db
+Dockerfile
+docker-compose.yml
+run.bat

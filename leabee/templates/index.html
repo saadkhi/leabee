@@ -59,10 +59,11 @@ dialog textarea{min-height:130px}
   <div class="row">
     <a class="nav" href="/board"><button>Board</button></a>
     <a class="nav" href="/insights"><button>Dashboard</button></a>
-    <button class="primary" id="collect">Collect new leads</button>
+    <button class="primary" id="collect" {% if readonly %}hidden{% endif %}>Collect new leads</button>
     <a href="#" id="csv"><button>Export CSV</button></a>
   </div>
 </header>
+{% if readonly %}<div style="background:var(--card);border-bottom:1px solid var(--line);padding:8px 20px;color:var(--mute)">Read-only snapshot. Edit and collect locally, then run <code>python -m leabee snapshot</code> and redeploy.</div>{% endif %}
 <div id="log"></div>
 <div class="chips" id="saved"></div>
 <div class="bar">
@@ -157,7 +158,8 @@ async function load(append=false){
   if(append)$('list').insertAdjacentHTML('beforeend',html);else $('list').innerHTML=html;
   if(shown<r.total)$('list').insertAdjacentHTML('beforeend','<div id="more" class="empty"><button class="primary" onclick="load(true)">Load more ('+(r.total-shown)+' left)</button></div>');
 }
-function patch(id,body){return fetch('/api/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+async function patch(id,body){const r=await fetch('/api/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.status===403){const j=await r.json();alert(j.error)}return r}
 function refreshBulk(){const n=selected.size;$('bulk').classList.toggle('on',n>0);$('selcount').textContent=n+' selected'}
 $('list').addEventListener('click',async e=>{
   const c=e.target.closest('.lead');if(!c)return;

@@ -53,6 +53,31 @@ def run_cycle(cfg: dict, store: Store, sources: list[str] | None = None, partial
         CYCLE_LOCK.release()
 
 
+def make_snapshot(store: Store, out: Path, min_score: int = 0) -> int:
+    """Compact, single-file copy of the database for read-only hosting (no WAL files, ignored leads removed)."""
+    import sqlite3
+
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".tmp")
+    tmp.unlink(missing_ok=True)
+    with store._lock:
+        dst = sqlite3.connect(str(tmp))
+        try:
+            store._conn.backup(dst)
+            dst.execute("DELETE FROM leads WHERE status='ignored' OR score<?", (min_score,))
+            dst.execute("DELETE FROM runs WHERE id NOT IN (SELECT id FROM runs ORDER BY id DESC LIMIT 50)")
+            dst.commit()
+            dst.execute("PRAGMA journal_mode=DELETE")
+            dst.execute("VACUUM")
+            n = dst.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
+        finally:
+            dst.close()
+    out.unlink(missing_ok=True)
+    tmp.replace(out)
+    return n
+
+
 def maybe_backup(cfg: dict, store: Store) -> str | None:
     """At most one backup per calendar day."""
     bcfg = cfg.get("backup", {}) or {}

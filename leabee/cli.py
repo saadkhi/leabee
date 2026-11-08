@@ -64,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     ar.add_argument("-n", "--limit", type=int, default=None)
     sub.add_parser("alert", help="send alerts for new hot leads (Telegram / Discord / email, see .env.example)")
     sub.add_parser("backup", help="copy the database to data/backups")
+    sn = sub.add_parser("snapshot", help="write vercel_data/leads.sqlite (read-only copy for the Vercel deployment)")
+    sn.add_argument("--min-score", type=int, default=0)
     d = sub.add_parser("draft", help="print reply drafts for a lead id")
     d.add_argument("lead_id")
 
@@ -135,6 +137,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "backup":
         from .jobs import backup_dir
         print("backup:", store.backup(backup_dir(cfg), int((cfg.get("backup", {}) or {}).get("keep", 14))))
+        return 0
+    if a.cmd == "snapshot":
+        from .config import ROOT
+        from .jobs import make_snapshot
+        out = ROOT / "vercel_data" / "leads.sqlite"
+        n = make_snapshot(store, out, a.min_score)
+        print(f"snapshot: {n} leads -> {out}  ({out.stat().st_size / 1e6:.1f} MB)")
         return 0
     if a.cmd == "draft":
         from .outreach import draft

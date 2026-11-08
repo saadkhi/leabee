@@ -53,7 +53,8 @@ document.addEventListener('drop',async e=>{
   const body={status:c.dataset.s};
   if(c.dataset.s==='contacted')body.follow_up=new Date(Date.now()+3*864e5).toISOString().slice(0,10);
   if(c.dataset.s==='won'){const v=prompt('Deal value in $ (optional)');if(v&&!isNaN(Number(v)))body.deal_value=Number(v)}
-  await fetch('/api/leads/'+dragId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const r=await fetch('/api/leads/'+dragId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.status===403){alert((await r.json()).error)}
   dragId=null;load();
 });
 load();

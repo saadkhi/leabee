@@ -15,11 +15,18 @@ from .pipeline import ALL_SOURCES
 from .storage import STATUSES, Store
 
 
-def create_app(cfg: dict, store: Store) -> Flask:
+def create_app(cfg: dict, store: Store, readonly: bool = False) -> Flask:
     app = Flask(__name__, template_folder="templates")
     state = {"running": False, "log": [], "started": None}
     lock = threading.Lock()
     password = os.environ.get("LEABEE_PASSWORD", "")
+
+    @app.before_request
+    def _readonly():
+        """Serverless (Vercel) mode serves a snapshot: block anything that would write."""
+        if readonly and (request.method in ("POST", "PATCH", "PUT", "DELETE")):
+            return jsonify(error="Read-only deployment: edit leads locally, then run `leabee snapshot` and redeploy."), 403
+        return None
 
     @app.before_request
     def _auth():
@@ -44,7 +51,7 @@ def create_app(cfg: dict, store: Store) -> Flask:
     @app.get("/")
     def index():
         return render_template("index.html", categories=sorted(CATEGORY_PATTERNS), statuses=STATUSES,
-                               sources=ALL_SOURCES, hot=cfg.get("hot_score", 70))
+                               sources=ALL_SOURCES, hot=cfg.get("hot_score", 70), readonly=readonly)
 
     @app.get("/insights")
     def insights():

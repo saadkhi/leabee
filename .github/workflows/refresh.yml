@@ -1,0 +1,65 @@
+name: Refresh leads
+
+# Free pipeline: GitHub Actions collects leads on a schedule, commits the updated snapshot,
+# and Vercel (connected to this repo) redeploys automatically.
+# KEEP THIS REPOSITORY PRIVATE: the snapshot contains lead data.
+#
+# Secrets to add (Settings > Secrets and variables > Actions):
+#   TINYFISH_API_KEY   (required for the TinyFish source)
+#   ANTHROPIC_API_KEY  (optional: AI review)
+#   GITHUB_TOKEN is provided automatically.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"      # every 6 hours
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-leads
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LEABEE_DB: vercel_data/work.db          # working copy; only the compact snapshot is committed
+      TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LEABEE_CONTACT: github-actions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Seed working DB from the last snapshot
+        run: |
+          mkdir -p vercel_data
+          if [ -f vercel_data/leads.sqlite ]; then cp vercel_data/leads.sqlite "$LEABEE_DB"; fi
+
+      # Reddit often rate-limits or blocks datacenter IPs such as GitHub's runners, so it is left out here.
+      # Run Reddit from your own PC (`python -m leabee collect -s reddit`) and push a new snapshot when you like.
+      - name: Collect
+        run: python -m leabee collect -s hackernews,boards,mastodon,github,tinyfish --enrich 100
+
+      - name: Snapshot
+        run: |
+          python -m leabee snapshot
+          rm -f "$LEABEE_DB" "$LEABEE_DB-wal" "$LEABEE_DB-shm"
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "leabee-bot"
+          git config user.email "leabee-bot@users.noreply.github.com"
+          git add -f vercel_data/leads.sqlite
+          if git diff --cached --quiet; then echo "no changes"; else
+            git commit -m "chore: refresh lead snapshot"
+            git push
+          fi

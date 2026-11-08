@@ -33,6 +33,8 @@ def load_config(path: str | Path | None = None) -> dict:
     cfg.setdefault("max_age_days", 21)
     cfg.setdefault("hot_score", 70)
     cfg.setdefault("request_delay", 1.5)
+    if os.environ.get("LEABEE_DB"):
+        cfg["database"] = os.environ["LEABEE_DB"]
     db = Path(cfg["database"])
     if not db.is_absolute():
         db = ROOT / db

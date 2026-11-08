@@ -10,7 +10,8 @@ from pathlib import Path
 
 COLUMNS = ["id", "source", "platform", "lead_type", "title", "text", "url", "author", "author_url",
            "posted_at", "found_at", "categories", "country", "budget_text", "budget_usd", "contact",
-           "score", "status", "notes", "enriched", "reasons"]
+           "score", "status", "notes", "enriched", "reasons", "language", "ai_verdict", "ai_summary",
+           "follow_up", "deal_value", "notified"]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
@@ -32,9 +33,24 @@ CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT,
   source TEXT, fetched INTEGER, kept INTEGER, new INTEGER, error TEXT
 );
+CREATE TABLE IF NOT EXISTS saved_filters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, query TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
+# Columns added after the first release; added to existing databases on open.
+MIGRATIONS = {
+    "language": "TEXT DEFAULT ''",
+    "ai_verdict": "TEXT DEFAULT ''",
+    "ai_summary": "TEXT DEFAULT ''",
+    "follow_up": "TEXT DEFAULT ''",
+    "deal_value": "REAL",
+    "notified": "INTEGER NOT NULL DEFAULT 0",
+}
+
 STATUSES = ("new", "contacted", "replied", "won", "lost", "ignored")
+MAX_BUDGET_USD = 2_000_000          # anything above is almost certainly a parsing accident
 
 
 def now_iso() -> str:
@@ -51,6 +67,11 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
+        have = {r[1] for r in self._conn.execute("PRAGMA table_info(leads)")}
+        for col, ddl in MIGRATIONS.items():
+            if col not in have:
+                self._conn.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_follow ON leads(follow_up)")
         self._conn.commit()
 
     @contextmanager
@@ -63,10 +84,14 @@ class Store:
                 self._conn.rollback()
                 raise
 
+    # ---------------------------------------------------------------- leads
     def upsert(self, lead: dict) -> bool:
         """Insert or refresh a lead. Returns True if it is new. Keeps user status/notes."""
         lead = dict(lead)
         lead.setdefault("found_at", now_iso())
+        bud = lead.get("budget_usd")
+        if bud is not None and bud > MAX_BUDGET_USD:
+            lead["budget_usd"] = None           # implausible; keep the text only
         with self._tx() as c:
             row = c.execute("SELECT score, enriched FROM leads WHERE id=?", (lead["id"],)).fetchone()
             if row is None:
@@ -80,10 +105,11 @@ class Store:
                 # never overwrite richer enriched text with a snippet
                 return False
             c.execute("""UPDATE leads SET title=?, text=?, categories=?, country=?, budget_text=?, budget_usd=?,
-                         contact=?, score=?, reasons=?, enriched=MAX(enriched, ?) WHERE id=?""",
+                         contact=?, score=?, reasons=?, language=COALESCE(?, language),
+                         enriched=MAX(enriched, ?) WHERE id=?""",
                       (lead["title"], lead["text"], lead["categories"], lead["country"], lead["budget_text"],
                        lead["budget_usd"], lead["contact"], lead["score"], lead.get("reasons", ""),
-                       int(lead.get("enriched", 0)), lead["id"]))
+                       lead.get("language"), int(lead.get("enriched", 0)), lead["id"]))
             return False
 
     def log_run(self, source: str, started: str, fetched: int, kept: int, new: int, error: str = "") -> None:
@@ -94,7 +120,8 @@ class Store:
     def query(self, *, min_score: int = 0, status: str = "", category: str = "", country: str = "",
               platform: str = "", lead_type: str = "", q: str = "", has_contact: bool = False,
               since_hours: float = 0, sort: str = "score", limit: int = 200, offset: int = 0,
-              exclude_ignored: bool = True) -> tuple[list[dict], int]:
+              exclude_ignored: bool = True, language: str = "", ai: str = "", follow_due: bool = False,
+              ids: list | None = None) -> tuple[list[dict], int]:
         where, args = ["score >= ?"], [min_score]
         if status:
             where.append("status = ?"); args.append(status)
@@ -111,8 +138,22 @@ class Store:
             where.append("platform = ?"); args.append(platform)
         if lead_type:
             where.append("lead_type = ?"); args.append(lead_type)
+        if language:
+            if language == "Unknown":
+                where.append("language = ''")
+            else:
+                where.append("language = ?"); args.append(language)
+        if ai:
+            where.append("ai_verdict = ?"); args.append(ai)
         if has_contact:
             where.append("contact != ''")
+        if follow_due:
+            where.append("follow_up != '' AND follow_up <= ? AND status IN ('contacted','replied')")
+            args.append(datetime.now().strftime("%Y-%m-%d"))
+        if ids is not None:
+            if not ids:
+                return [], 0
+            where.append(f"id IN ({','.join('?' * len(ids))})"); args += list(ids)
         if q:
             where.append("(title LIKE ? OR text LIKE ? OR author LIKE ?)")
             args += [f"%{q}%"] * 3
@@ -122,7 +163,8 @@ class Store:
             args.append(int(cutoff))
         order = {"score": "score DESC, COALESCE(posted_at, found_at) DESC",
                  "new": "COALESCE(posted_at, found_at) DESC",
-                 "budget": "budget_usd IS NULL, budget_usd DESC, score DESC"}.get(sort, "score DESC")
+                 "budget": "budget_usd IS NULL, budget_usd DESC, score DESC",
+                 "follow_up": "follow_up = '', follow_up ASC, score DESC"}.get(sort, "score DESC")
         sql_where = " AND ".join(where)
         with self._lock:
             total = self._conn.execute(f"SELECT COUNT(*) FROM leads WHERE {sql_where}", args).fetchone()[0]
@@ -136,17 +178,105 @@ class Store:
             r = self._conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
         return dict(r) if r else None
 
-    def update_user_fields(self, lead_id: str, status: str | None = None, notes: str | None = None) -> bool:
+    def update_user_fields(self, lead_id: str, status: str | None = None, notes: str | None = None,
+                           follow_up: str | None = None, deal_value: float | None | str = "unset") -> bool:
         if status is not None and status not in STATUSES:
             raise ValueError(f"invalid status: {status}")
+        if follow_up:
+            try:
+                datetime.strptime(follow_up, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("follow_up must be YYYY-MM-DD")
+        dv = None
+        if deal_value != "unset":
+            try:
+                dv = None if deal_value in (None, "") else float(deal_value)
+            except (TypeError, ValueError):
+                raise ValueError("deal_value must be a number")
         with self._tx() as c:
             if status is not None:
                 c.execute("UPDATE leads SET status=? WHERE id=?", (status, lead_id))
             if notes is not None:
                 c.execute("UPDATE leads SET notes=? WHERE id=?", (notes[:5000], lead_id))
+            if follow_up is not None:
+                c.execute("UPDATE leads SET follow_up=? WHERE id=?", (follow_up, lead_id))
+            if deal_value != "unset":
+                c.execute("UPDATE leads SET deal_value=? WHERE id=?", (dv, lead_id))
             return c.execute("SELECT 1 FROM leads WHERE id=?", (lead_id,)).fetchone() is not None
 
+    def bulk_status(self, ids: list[str], status: str) -> int:
+        if status not in STATUSES:
+            raise ValueError(f"invalid status: {status}")
+        if not ids:
+            return 0
+        with self._tx() as c:
+            n = 0
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                n += c.execute(f"UPDATE leads SET status=? WHERE id IN ({','.join('?' * len(part))})",
+                               [status, *part]).rowcount
+            return n
+
+    # -------------------------------------------------------- AI / alerts
+    def for_ai_review(self, limit: int, lo: int = 35, hi: int = 75) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM leads WHERE ai_verdict='' AND status='new' AND score BETWEEN ? AND ? "
+                "ORDER BY score DESC LIMIT ?", (lo, hi, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_ai(self, lead_id: str, verdict: str, summary: str, score_delta: int = 0) -> None:
+        with self._tx() as c:
+            c.execute("UPDATE leads SET ai_verdict=?, ai_summary=?, score=MAX(0, MIN(100, score+?)) WHERE id=?",
+                      (verdict, summary[:300], score_delta, lead_id))
+
+    def to_notify(self, min_score: int, limit: int = 20) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM leads WHERE notified=0 AND status='new' AND score>=? AND ai_verdict!='reject' "
+                "ORDER BY score DESC LIMIT ?", (min_score, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_notified(self, ids: list[str]) -> None:
+        with self._tx() as c:
+            for i in ids:
+                c.execute("UPDATE leads SET notified=1 WHERE id=?", (i,))
+
+    def baseline_notified(self, min_score: int) -> int:
+        """Mark everything already stored as notified so the first alert run is not a flood."""
+        with self._tx() as c:
+            return c.execute("UPDATE leads SET notified=1 WHERE notified=0 AND score>=?", (min_score,)).rowcount
+
+    # ------------------------------------------------------------ meta/filters
+    def get_meta(self, key: str, default: str = "") -> str:
+        with self._lock:
+            r = self._conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return r[0] if r else default
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._tx() as c:
+            c.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (key, value))
+
+    def list_filters(self) -> list[dict]:
+        with self._lock:
+            return [dict(r) for r in self._conn.execute("SELECT id, name, query FROM saved_filters ORDER BY name")]
+
+    def save_filter(self, name: str, query: str) -> None:
+        name = name.strip()[:60]
+        if not name:
+            raise ValueError("name required")
+        with self._tx() as c:
+            c.execute("INSERT INTO saved_filters(name,query) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET query=excluded.query",
+                      (name, query[:1000]))
+
+    def delete_filter(self, fid: int) -> None:
+        with self._tx() as c:
+            c.execute("DELETE FROM saved_filters WHERE id=?", (fid,))
+
+    # ------------------------------------------------------------------ stats
     def stats(self) -> dict:
+        today = datetime.now().strftime("%Y-%m-%d")
         with self._lock:
             c = self._conn
             live = "status != 'ignored'"
@@ -156,19 +286,56 @@ class Store:
             by_platform = c.execute(f"SELECT platform, COUNT(*) n FROM leads WHERE {live} GROUP BY platform ORDER BY n DESC").fetchall()
             by_country = c.execute(f"SELECT CASE WHEN country='' THEN 'Unknown' ELSE country END k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC LIMIT 40").fetchall()
             by_status = c.execute("SELECT status, COUNT(*) n FROM leads GROUP BY status").fetchall()
-            cat_rows = c.execute(f"SELECT categories FROM leads WHERE {live}").fetchall()
+            by_lang = c.execute(f"SELECT CASE WHEN language='' THEN 'Unknown' ELSE language END k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC").fetchall()
+            cat_rows = c.execute(f"SELECT categories, substr(COALESCE(posted_at, found_at),1,10) d FROM leads WHERE {live}").fetchall()
             last = c.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 12").fetchall()
+            by_type = c.execute(f"SELECT lead_type k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC").fetchall()
+            buckets = c.execute(f"SELECT CASE WHEN score>=90 THEN '90-100' WHEN score>=80 THEN '80-89' WHEN score>=70 THEN '70-79' "
+                                f"WHEN score>=60 THEN '60-69' WHEN score>=50 THEN '50-59' ELSE '35-49' END k, COUNT(*) n "
+                                f"FROM leads WHERE {live} GROUP BY k").fetchall()
+            per_day = c.execute(f"SELECT substr(COALESCE(posted_at, found_at),1,10) k, COUNT(*) n FROM leads WHERE {live} "
+                                f"GROUP BY k ORDER BY k DESC LIMIT 30").fetchall()
+            budgets = sorted(r[0] for r in c.execute(f"SELECT budget_usd FROM leads WHERE budget_usd IS NOT NULL AND {live}"))
+            perf = c.execute("SELECT platform, COUNT(*) leads, ROUND(AVG(score),1) avg_score, "
+                             "SUM(status IN ('contacted','replied','won','lost')) worked, "
+                             "SUM(status='replied') replied, SUM(status='won') won, "
+                             "COALESCE(SUM(CASE WHEN status='won' THEN deal_value END),0) revenue "
+                             "FROM leads WHERE status!='ignored' GROUP BY platform ORDER BY leads DESC").fetchall()
+            revenue = c.execute("SELECT COALESCE(SUM(deal_value),0) FROM leads WHERE status='won'").fetchone()[0]
+            due = c.execute("SELECT COUNT(*) FROM leads WHERE follow_up!='' AND follow_up<=? AND status IN ('contacted','replied')",
+                            (today,)).fetchone()[0]
+            ai_n = c.execute(f"SELECT COUNT(*) FROM leads WHERE ai_verdict!='' AND {live}").fetchone()[0]
+        now_ts = datetime.now(timezone.utc).timestamp()
+        mid = datetime.fromtimestamp(now_ts - 7 * 86400, timezone.utc).strftime("%Y-%m-%d")
+        old = datetime.fromtimestamp(now_ts - 14 * 86400, timezone.utc).strftime("%Y-%m-%d")
         cats: dict[str, int] = {}
+        recent: dict[str, int] = {}
+        prev: dict[str, int] = {}
         for r in cat_rows:
+            day = r[1] or ""
             for k in filter(None, (r[0] or "").split(",")):
                 cats[k] = cats.get(k, 0) + 1
+                if day >= mid:
+                    recent[k] = recent.get(k, 0) + 1
+                elif day >= old:
+                    prev[k] = prev.get(k, 0) + 1
+        trend = sorted(({"k": k, "recent": recent.get(k, 0), "prev": prev.get(k, 0)} for k in cats),
+                       key=lambda x: -(x["recent"] - x["prev"]))
         return {
             "total": total, "hot": hot, "with_contact": with_contact,
             "by_platform": [dict(r) for r in by_platform],
             "by_country": [dict(r) for r in by_country],
             "by_status": [dict(r) for r in by_status],
+            "by_language": [dict(r) for r in by_lang],
             "by_category": sorted(({"k": k, "n": n} for k, n in cats.items()), key=lambda x: -x["n"]),
             "runs": [dict(r) for r in last],
+            "by_type": [dict(r) for r in by_type],
+            "by_score": sorted((dict(r) for r in buckets), key=lambda x: x["k"], reverse=True),
+            "per_day": [dict(r) for r in reversed(per_day)],
+            "with_budget": len(budgets), "budget_median": budgets[len(budgets) // 2] if budgets else 0,
+            "platform_perf": [dict(r) for r in perf],
+            "category_trend": trend,
+            "revenue": revenue, "follow_ups_due": due, "ai_reviewed": ai_n,
         }
 
     def unenriched(self, limit: int, min_score: int = 0) -> list[dict]:
@@ -199,10 +366,28 @@ class Store:
         with self._tx() as c:
             c.execute("DELETE FROM leads WHERE id=?", (lead_id,))
 
+    def backup(self, dest_dir: str, keep: int = 14) -> str | None:
+        """Consistent copy of the database (SQLite online backup). Prunes old copies."""
+        if self.path == ":memory:":
+            return None
+        d = Path(dest_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        out = d / f"leads-{datetime.now():%Y%m%d-%H%M%S}.db"
+        with self._lock:
+            dst = sqlite3.connect(str(out))
+            try:
+                self._conn.backup(dst)
+            finally:
+                dst.close()
+        for old in sorted(d.glob("leads-*.db"))[:-keep]:
+            old.unlink(missing_ok=True)
+        return str(out)
+
     def to_csv(self, rows: list[dict]) -> str:
         buf = io.StringIO()
         cols = ["score", "status", "platform", "lead_type", "title", "url", "author", "author_url", "country",
-                "categories", "budget_text", "budget_usd", "contact", "posted_at", "found_at", "notes", "text"]
+                "language", "categories", "budget_text", "budget_usd", "contact", "ai_summary", "follow_up",
+                "deal_value", "posted_at", "found_at", "notes", "text"]
         w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
         for r in rows:

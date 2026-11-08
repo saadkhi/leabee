@@ -53,6 +53,14 @@ def parse_feed(xml_text: str, default_sub: str = "") -> list[RawItem]:
     return items
 
 
+def _slice(items: list, size, cfg: dict) -> list:
+    """Scheduled (partial) runs take a rotating window so each run is short but everything is covered over time."""
+    if not cfg.get("_partial") or not size or size >= len(items):
+        return items
+    start = (int(cfg.get("_reddit_offset", 0)) * int(size)) % len(items)
+    return [items[(start + i) % len(items)] for i in range(int(size))]
+
+
 def collect(cfg: dict, http) -> Iterator[RawItem]:
     rcfg = cfg.get("reddit", {})
     seen: set[str] = set()
@@ -66,7 +74,9 @@ def collect(cfg: dict, http) -> Iterator[RawItem]:
                 it.force_intent = "buyer"
             yield it
 
-    for sub in rcfg.get("subreddits", []):
+    subs = _slice(rcfg.get("subreddits", []), rcfg.get("per_run", {}).get("subreddits"), cfg)
+    queries = _slice(rcfg.get("search_queries", []), rcfg.get("per_run", {}).get("queries"), cfg)
+    for sub in subs:
         name = sub["name"] if isinstance(sub, dict) else sub
         buyer_only = bool(sub.get("buyer_only")) if isinstance(sub, dict) else False
         r = http.get(f"https://www.reddit.com/r/{name}/new/.rss?limit=100")
@@ -76,7 +86,7 @@ def collect(cfg: dict, http) -> Iterator[RawItem]:
         yield from emit(parse_feed(r.text, name), buyer_only)
 
     window = rcfg.get("search_window", "week")
-    for q in rcfg.get("search_queries", []):
+    for q in queries:
         r = http.get(f"https://www.reddit.com/search.rss?q={quote_plus(q)}&sort=new&t={window}&limit=100")
         if r is None or r.status_code != 200:
             log.warning("reddit search %r -> %s", q, getattr(r, "status_code", "no response"))

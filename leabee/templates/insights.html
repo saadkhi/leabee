@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leabee Dashboard</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--mute:#667085;--line:#e4e7ec;--acc:#2f6fed;--hot:#e5484d;--ok:#12a150;--warn:#d9822b}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--line:#262b36;--acc:#6b9bff;--hot:#ff6b6f;--ok:#3ecf8e;--warn:#f0a050}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card)}
+h1{font-size:18px;margin:0}
+a.btn{color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px;background:var(--card)}
+main{max-width:1200px;margin:0 auto;padding:16px 20px 40px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.kpi b{display:block;font-size:24px}.kpi span{color:var(--mute);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-top:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{font-size:14px;margin:0 0 10px}
+.bar{display:grid;grid-template-columns:minmax(90px,38%) 1fr 44px;gap:8px;align-items:center;padding:3px 0;text-decoration:none;color:inherit;font-size:13px}
+a.bar:hover .lbl{color:var(--acc)}
+.lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track{background:var(--bg);border-radius:4px;height:12px;overflow:hidden}
+.fill{height:100%;background:var(--acc);border-radius:4px}
+.n{text-align:right;color:var(--mute);font-variant-numeric:tabular-nums}
+.spark{display:flex;align-items:flex-end;gap:2px;height:110px}
+.spark div{flex:1;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
+.axis{display:flex;justify-content:space-between;color:var(--mute);font-size:11px;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+.err{color:var(--hot)}
+</style>
+</head>
+<body>
+<header><h1>🐝 Leabee Dashboard</h1><span><a class="btn" href="/">← Leads</a> <a class="btn" href="/board">Board</a></span></header>
+<main>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid">
+    <div class="card"><h2>Service categories</h2><div id="cat"></div></div>
+    <div class="card"><h2>Lead types</h2><div id="type"></div><h2 style="margin-top:16px">Score bands</h2><div id="score"></div></div>
+    <div class="card"><h2>Platforms</h2><div id="plat"></div></div>
+    <div class="card"><h2>Countries</h2><div id="country"></div></div>
+    <div class="card"><h2>Pipeline status</h2><div id="status"></div></div>
+    <div class="card"><h2>Leads by post date (last 30 days)</h2><div class="spark" id="spark"></div><div class="axis" id="axis"></div></div>
+    <div class="card"><h2>Languages</h2><div id="lang"></div></div>
+    <div class="card"><h2>Category trend: last 7 days vs the 7 before</h2><div id="trend"></div></div>
+    <div class="card" style="grid-column:1/-1"><h2>Platform performance (what actually converts)</h2><div id="perf"></div></div>
+    <div class="card" style="grid-column:1/-1"><h2>Recent collection runs</h2><div id="runs"></div></div>
+  </div>
+</main>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nice=s=>String(s).replace(/_/g,' ');
+function bars(id,rows,param,label=nice){
+  const el=document.getElementById(id), max=Math.max(1,...rows.map(r=>r.n));
+  el.innerHTML=rows.length?rows.map(r=>{
+    const k=r.k??r.platform??r.status, inner=`<span class="lbl" title="${esc(label(k))}">${esc(label(k))}</span><span class="track"><span class="fill" style="display:block;width:${r.n/max*100}%"></span></span><span class="n">${r.n}</span>`;
+    return param&&k!=='Unknown'?`<a class="bar" href="/?${param}=${encodeURIComponent(k)}">${inner}</a>`:`<div class="bar">${inner}</div>`;
+  }).join(''):'<span class="n">No data</span>';
+}
+fetch('/api/stats').then(r=>r.json()).then(s=>{
+  const unk=(s.by_country.find(c=>c.k==='Unknown')||{n:0}).n;
+  const k=[[s.total,'Active leads'],[s.hot,'Hot (70+)'],[s.with_contact,'With contact'],
+    [s.with_budget,'With budget'],['$'+Math.round(s.budget_median).toLocaleString(),'Median stated budget'],
+    [s.follow_ups_due,'Follow-ups due'],['$'+Math.round(s.revenue).toLocaleString(),'Won revenue'],[s.ai_reviewed,'AI-reviewed'],
+    [s.by_category.length,'Categories'],[s.by_platform.length,'Platforms'],[s.by_country.length-(unk?1:0),'Countries known']];
+  document.getElementById('kpis').innerHTML=k.map(([v,l])=>`<div class="kpi"><b>${esc(v)}</b><span>${l}</span></div>`).join('');
+  bars('cat',s.by_category,'category');
+  bars('type',s.by_type,'type',t=>t==='buyer'?'Buyer posts':'Job openings');
+  bars('score',s.by_score,null);
+  bars('plat',s.by_platform.map(p=>({k:p.platform,n:p.n})),'platform');
+  bars('country',s.by_country,'country');
+  bars('status',s.by_status,'status');
+  bars('lang',s.by_language,'language',x=>x);
+  document.getElementById('trend').innerHTML=s.category_trend.length?s.category_trend.map(t=>{const d=t.recent-t.prev;
+    return `<a class="bar" href="/?category=${encodeURIComponent(t.k)}"><span class="lbl">${esc(nice(t.k))}</span><span class="n" style="text-align:left">${t.prev} → ${t.recent}</span><span class="n" style="color:${d>0?'var(--ok)':d<0?'var(--hot)':'var(--mute)'}">${d>0?'+':''}${d}</span></a>`}).join(''):'<span class="n">No data</span>';
+  document.getElementById('perf').innerHTML='<table><tr><th>Platform</th><th>Leads</th><th>Avg score</th><th>Worked</th><th>Replied</th><th>Won</th><th>Win rate</th><th>Revenue</th></tr>'+
+    s.platform_perf.map(p=>`<tr><td>${esc(p.platform)}</td><td>${p.leads}</td><td>${p.avg_score}</td><td>${p.worked}</td><td>${p.replied}</td><td>${p.won}</td><td>${p.worked?Math.round(p.won/p.worked*100)+'%':'–'}</td><td>$${Math.round(p.revenue).toLocaleString()}</td></tr>`).join('')+'</table>';
+  const d=s.per_day,mx=Math.max(1,...d.map(x=>x.n));
+  document.getElementById('spark').innerHTML=d.map(x=>`<div title="${esc(x.k)}: ${x.n}" style="height:${x.n/mx*100}%"></div>`).join('');
+  document.getElementById('axis').innerHTML=d.length?`<span>${esc(d[0].k)}</span><span>${esc(d[d.length-1].k)}</span>`:'';
+  document.getElementById('runs').innerHTML='<table><tr><th>Started</th><th>Source</th><th>Fetched</th><th>Kept</th><th>New</th><th>Error</th></tr>'+
+    s.runs.map(r=>`<tr><td>${esc(r.started_at)}</td><td>${esc(r.source)}</td><td>${r.fetched}</td><td>${r.kept}</td><td>${r.new}</td><td class="err">${esc(r.error)}</td></tr>`).join('')+'</table>';
+});
+</script>
+</body>
+</html>

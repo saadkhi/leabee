@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leabee Board</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--mute:#667085;--line:#e4e7ec;--acc:#2f6fed;--hot:#e5484d;--ok:#12a150;--warn:#d9822b}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--line:#262b36;--acc:#6b9bff;--hot:#ff6b6f;--ok:#3ecf8e;--warn:#f0a050}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card)}
+h1{font-size:18px;margin:0}
+a.btn{color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 12px;background:var(--card)}
+.cols{display:grid;grid-template-columns:repeat({{ statuses|length }},minmax(230px,1fr));gap:12px;padding:16px 20px;overflow-x:auto;align-items:start}
+.col{background:var(--card);border:1px solid var(--line);border-radius:10px;min-height:200px;display:flex;flex-direction:column}
+.col h2{font-size:13px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;text-transform:capitalize}
+.col h2 span{color:var(--mute);font-weight:400}
+.col.over{outline:2px dashed var(--acc)}
+.cards{padding:8px;display:flex;flex-direction:column;gap:8px;min-height:80px}
+.k{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;font-size:13px}
+.k.hot{border-left:4px solid var(--hot)}
+.k a{color:var(--ink);text-decoration:none;font-weight:600;word-break:break-word}
+.k small{display:block;color:var(--mute);margin-top:3px}
+.k .due{color:var(--hot);font-weight:600}
+.k .money{color:var(--ok);font-weight:600}
+</style>
+</head>
+<body>
+<header><h1>🐝 Pipeline board</h1><span style="color:var(--mute)">Drag cards between columns · top 60 per column</span><div><a class="btn" href="/">← Leads</a> <a class="btn" href="/insights">Dashboard</a></div></header>
+<div class="cols" id="cols"></div>
+<script>
+const STATUSES={{ statuses|tojson }};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl=u=>/^https?:\/\//i.test(u)?u:'#';
+const today=new Date().toISOString().slice(0,10);
+async function load(){
+  const cols=document.getElementById('cols');
+  const data=await Promise.all(STATUSES.map(s=>fetch(`/api/leads?status=${s}&limit=60&sort=${s==='new'?'score':'follow_up'}`).then(r=>r.json())));
+  cols.innerHTML=STATUSES.map((s,i)=>`<div class="col" data-s="${s}"><h2>${s}<span>${data[i].total}</span></h2><div class="cards">`+
+    data[i].leads.map(l=>`<div class="k ${l.score>=70?'hot':''}" draggable="true" data-id="${esc(l.id)}">
+      <a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title.slice(0,90))}</a>
+      <small>${l.score} · ${esc(l.platform)} · ${esc(l.country||'?')}</small>
+      ${l.follow_up?`<small class="${l.follow_up<=today&&(s==='contacted'||s==='replied')?'due':''}">follow up ${esc(l.follow_up)}</small>`:''}
+      ${l.deal_value?`<small class="money">$${Number(l.deal_value).toLocaleString()}</small>`:''}</div>`).join('')+`</div></div>`).join('');
+}
+let dragId=null;
+document.addEventListener('dragstart',e=>{const k=e.target.closest('.k');if(k){dragId=k.dataset.id;e.dataTransfer.effectAllowed='move'}});
+document.addEventListener('dragover',e=>{const c=e.target.closest('.col');if(c&&dragId){e.preventDefault();document.querySelectorAll('.col').forEach(x=>x.classList.toggle('over',x===c))}});
+document.addEventListener('dragend',()=>{document.querySelectorAll('.col').forEach(x=>x.classList.remove('over'));dragId=null});
+document.addEventListener('drop',async e=>{
+  const c=e.target.closest('.col');if(!c||!dragId)return;e.preventDefault();
+  const body={status:c.dataset.s};
+  if(c.dataset.s==='contacted')body.follow_up=new Date(Date.now()+3*864e5).toISOString().slice(0,10);
+  if(c.dataset.s==='won'){const v=prompt('Deal value in $ (optional)');if(v&&!isNaN(Number(v)))body.deal_value=Number(v)}
+  await fetch('/api/leads/'+dragId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  dragId=null;load();
+});
+load();
+</script>
+</body>
+</html>

@@ -45,6 +45,28 @@ python -m leabee watch --every 60        # re-collect every hour
 The dashboard has a **Collect new leads** button, filters (service, country, platform, age, score, has-contact),
 per-lead status (new → contacted → replied → won/lost/ignored), notes and CSV export.
 
+## Features
+
+* **Leads page** (`/`): filters (service, country, language, platform, type, status, age, score, AI verdict, has-contact,
+  follow-ups due), saved filters (★ chips), bulk select → set status / export selected, per-lead notes, follow-up date and deal value.
+* **Draft reply** button: short DM, longer email and follow-up templates per service. Set `LEABEE_YOUR_NAME` in `.env`.
+  Nothing is ever sent automatically; you copy it and reply on the original post.
+* **Board** (`/board`): drag leads between New / Contacted / Replied / Won / Lost. Moving to Contacted sets a follow-up
+  3 days out; moving to Won asks for the deal value.
+* **Dashboard** (`/insights`): categories, types, score bands, platforms, countries, languages, 7-day category trends,
+  platform performance (worked / replied / won / win rate / revenue), follow-ups due and recent runs. Every bar links to the filtered list.
+* **Better country detection**: besides named places it uses currency (₹, £, PKR…), email/site domain, phone code, timezone and language.
+* **AI second opinion** (optional): `python -m leabee ai-review`, needs `ANTHROPIC_API_KEY`. Borderline leads (score 35–75) get a
+  buyer / maybe / reject verdict and a one-line summary; rejects are hidden, confirmed buyers get +5.
+* **Alerts**: new leads scoring 80+ are pushed to Telegram, Discord or email (see `.env.example`); `python -m leabee alert`
+  or automatically after each collection. The first run only baselines existing leads.
+* **Scheduler**: `python -m leabee serve --auto-collect 120` (or `schedule.enabled: true` in `config.yaml`) collects in the
+  background. Scheduled runs take a rotating slice of Reddit (`reddit.per_run`) so each run is short; manual runs sweep everything.
+* **GitHub issues** source (bounties / "looking for a developer"), `GITHUB_TOKEN` optional.
+* **Backups**: a daily copy of the database in `data/backups` (14 kept); `python -m leabee backup` on demand.
+* **Password**: set `LEABEE_PASSWORD` in `.env` to require HTTP Basic login (any username). Do this before exposing it online.
+* **Run anywhere**: `run.bat` on Windows, or `docker compose up -d` (data persists in `./data`).
+
 ## How leads are judged
 
 * **Buyer vs seller**: "looking for a developer / need someone to build / [HIRING] / willing to pay…" count; "[FOR HIRE] / I will build / my services /

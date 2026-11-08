@@ -18,23 +18,38 @@ h1{font-size:18px;margin:0}
 input,select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 button{cursor:pointer}button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
 button:disabled{opacity:.55;cursor:default}
-main{padding:0 20px 40px;max-width:1200px;margin:0 auto}
+a.nav{text-decoration:none}
+main{padding:0 20px 90px;max-width:1200px;margin:0 auto}
 .lead{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0}
 .lead.hot{border-left:4px solid var(--hot)}
+.lead.sel{outline:2px solid var(--acc)}
 .top{display:flex;gap:10px;align-items:flex-start}
 .score{min-width:42px;text-align:center;font-weight:700;border-radius:8px;padding:4px 0;background:var(--bg)}
 .score.hot{background:var(--hot);color:#fff}
 .title{font-weight:600;color:var(--ink);text-decoration:none;word-break:break-word}.title:hover{color:var(--acc)}
 .meta{color:var(--mute);font-size:12px;margin-top:2px;display:flex;gap:10px;flex-wrap:wrap}
 .tag{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px}
+.tag.ai{border-color:var(--ok);color:var(--ok)}
 .text{white-space:pre-wrap;color:var(--mute);margin:8px 0;max-height:7.5em;overflow:hidden}
 .text.open{max-height:none}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .contact{color:var(--ok);font-size:12px;word-break:break-all}
 .budget{color:var(--warn);font-weight:600;font-size:12px}
+.summary{color:var(--ink);font-size:13px;margin-top:6px}
 .empty{text-align:center;color:var(--mute);padding:60px 0}
 #log{font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--mute);padding:0 20px;white-space:pre-wrap}
 textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px;margin-top:6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 20px 6px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--card);font-size:12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.chip i{font-style:normal;color:var(--mute)}
+.chip:hover{border-color:var(--acc)}
+#bulk{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 20px;display:none;gap:8px;align-items:center;flex-wrap:wrap;z-index:8}
+#bulk.on{display:flex}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);max-width:640px;width:92%;padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog textarea{min-height:130px}
+.fld{display:flex;flex-direction:column;font-size:12px;color:var(--mute);gap:2px}
+.fld input{width:130px}
 </style>
 </head>
 <body>
@@ -42,42 +57,94 @@ textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1p
   <h1>🐝 Leabee Leads</h1>
   <div class="stats" id="stats"></div>
   <div class="row">
+    <a class="nav" href="/board"><button>Board</button></a>
+    <a class="nav" href="/insights"><button>Dashboard</button></a>
     <button class="primary" id="collect">Collect new leads</button>
     <a href="#" id="csv"><button>Export CSV</button></a>
   </div>
 </header>
 <div id="log"></div>
+<div class="chips" id="saved"></div>
 <div class="bar">
   <input id="q" placeholder="Search text…" style="min-width:200px">
   <select id="category"><option value="">All services</option>{% for c in categories %}<option value="{{c}}">{{c.replace('_',' ')}}</option>{% endfor %}</select>
   <select id="country"><option value="">All countries</option></select>
+  <select id="language"><option value="">All languages</option></select>
   <select id="platform"><option value="">All platforms</option></select>
   <select id="type"><option value="">Buyers + jobs</option><option value="buyer">Buyer posts</option><option value="job">Job openings</option></select>
   <select id="status"><option value="">Active</option>{% for s in statuses %}<option value="{{s}}">{{s}}</option>{% endfor %}</select>
   <select id="since_hours"><option value="0">Any age</option><option value="24">Last 24h</option><option value="72">Last 3 days</option><option value="168">Last 7 days</option></select>
   <select id="min_score"><option value="0">Any score</option><option value="50">50+</option><option value="60">60+</option><option value="70">70+ (hot)</option></select>
-  <select id="sort"><option value="score">Best score</option><option value="new">Newest</option><option value="budget">Biggest budget</option></select>
+  <select id="ai"><option value="">AI: any</option><option value="buyer">AI-confirmed buyers</option><option value="maybe">AI: unsure</option></select>
+  <select id="sort"><option value="score">Best score</option><option value="new">Newest</option><option value="budget">Biggest budget</option><option value="follow_up">Follow-up date</option></select>
   <label><input type="checkbox" id="contact"> has contact</label>
+  <label><input type="checkbox" id="follow_due"> follow-ups due</label>
+  <button id="savefilter">★ Save filter</button>
   <span id="count" style="color:var(--mute)"></span>
 </div>
 <main id="list"></main>
+
+<div id="bulk">
+  <b id="selcount">0 selected</b>
+  <button id="selall">Select all shown</button>
+  <select id="bulkstatus"><option value="">Set status…</option>{% for s in statuses %}<option value="{{s}}">{{s}}</option>{% endfor %}</select>
+  <button id="bulkexport">Export selected</button>
+  <button id="selclear">Clear</button>
+</div>
+
+<dialog id="dlg">
+  <h3 style="margin:0 0 8px">Reply drafts <span style="font-weight:400;color:var(--mute);font-size:12px">— review and edit, then send it yourself on the original post</span></h3>
+  <div class="row" id="dtabs"></div>
+  <textarea id="dtext"></textarea>
+  <div class="row" style="margin-top:10px;justify-content:flex-end">
+    <button id="dcopy" class="primary">Copy</button><button id="dclose">Close</button>
+  </div>
+</dialog>
+
 <script>
 const $=id=>document.getElementById(id);
 const HOT={{hot}};
 const STATUSES={{ statuses|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl=u=>/^https?:\/\//i.test(u)?u:'#';
-const F=['q','category','country','platform','type','status','since_hours','min_score','sort'];
-function params(){const p=new URLSearchParams();F.forEach(k=>{const v=$(k).value;if(v&&v!=='0')p.set(k,v)});if($('contact').checked)p.set('contact','1');return p}
+const F=['q','category','country','language','platform','type','status','since_hours','min_score','ai','sort'];
+const CB=['contact','follow_due'];
+const selected=new Set();
+function params(){const p=new URLSearchParams();F.forEach(k=>{const v=$(k).value;if(v&&v!=='0')p.set(k,v)});CB.forEach(k=>{if($(k).checked)p.set(k,'1')});return p}
 function ago(iso){if(!iso)return 'recent';const s=(Date.now()-new Date(iso))/1000;if(s<3600)return Math.max(1,Math.round(s/60))+'m ago';if(s<86400)return Math.round(s/3600)+'h ago';return Math.round(s/86400)+'d ago'}
 async function loadStats(){
   const s=await (await fetch('/api/stats')).json();
-  $('stats').innerHTML=[['Leads',s.total],['Hot',s.hot],['With contact',s.with_contact],['Platforms',s.by_platform.length],['Countries',s.by_country.filter(c=>c.k!=='Unknown').length]]
+  $('stats').innerHTML=[['Leads',s.total],['Hot',s.hot],['With contact',s.with_contact],['Follow-ups due',s.follow_ups_due],['Countries',s.by_country.filter(c=>c.k!=='Unknown').length]]
     .map(([a,b])=>`<div class="stat"><b>${b}</b><span>${a}</span></div>`).join('');
-  fill('country',s.by_country.map(c=>c.k));fill('platform',s.by_platform.map(c=>c.platform));
+  fill('country',s.by_country.map(c=>c.k));fill('platform',s.by_platform.map(c=>c.platform));fill('language',s.by_language.map(c=>c.k));
 }
 function fill(id,vals){const el=$(id),cur=el.value,first=el.firstElementChild.outerHTML;el.innerHTML=first+vals.map(v=>`<option>${esc(v)}</option>`).join('');el.value=cur}
 const PAGE=100;let shown=0;
+function card(l){return `
+  <div class="lead ${l.score>=HOT?'hot':''} ${selected.has(l.id)?'sel':''}" data-id="${esc(l.id)}">
+    <div class="top"><input type="checkbox" class="pick" ${selected.has(l.id)?'checked':''} aria-label="select">
+      <div class="score ${l.score>=HOT?'hot':''}">${l.score}</div>
+      <div style="flex:1;min-width:0">
+        <a class="title" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a>
+        <div class="meta"><span>${esc(l.platform)}</span><span>${l.lead_type==='job'?'job opening':'buyer post'}</span>
+          <span>${esc(l.country||'country unknown')}</span>${l.language?`<span>${esc(l.language)}</span>`:''}<span>${ago(l.posted_at||l.found_at)}</span>
+          ${l.author?`<span>by ${l.author_url?`<a href="${esc(safeUrl(l.author_url))}" target="_blank" rel="noopener noreferrer">${esc(l.author)}</a>`:esc(l.author)}</span>`:''}
+          ${l.budget_text?`<span class="budget">${esc(l.budget_text)}</span>`:''}</div>
+        <div class="row" style="margin-top:6px">${l.categories.map(c=>`<span class="tag">${esc(c.replace('_',' '))}</span>`).join('')}${l.ai_verdict==='buyer'?'<span class="tag ai">AI ✓ buyer</span>':''}</div>
+        ${l.ai_summary?`<div class="summary">🤖 ${esc(l.ai_summary)}</div>`:''}
+      </div></div>
+    <div class="text">${esc(l.text)}</div>
+    ${l.contact?`<div class="contact">📬 ${esc(l.contact)}</div>`:''}
+    <div class="row" style="margin-top:8px">
+      <select class="st">${STATUSES.map(s=>`<option ${s===l.status?'selected':''}>${s}</option>`).join('')}</select>
+      <button class="draft primary">Draft reply</button>
+      <a class="nav" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer"><button>Open post</button></a>
+      <label class="fld" style="flex-direction:row;align-items:center;gap:4px">follow up <input type="date" class="fu" value="${esc(l.follow_up||'')}" style="width:140px"></label>
+      <label class="fld" style="flex-direction:row;align-items:center;gap:4px">deal $ <input type="number" min="0" class="dv" value="${l.deal_value??''}" style="width:90px"></label>
+      <button class="more">Show more</button><button class="note">Notes</button>
+    </div>
+    <textarea class="notes" rows="2" placeholder="Notes…" hidden>${esc(l.notes||'')}</textarea>
+  </div>`}
 async function load(append=false){
   if(!append)shown=0;
   const r=await (await fetch(`/api/leads?limit=${PAGE}&offset=${shown}&`+params())).json();
@@ -86,44 +153,61 @@ async function load(append=false){
   const old=$('more');if(old)old.remove();
   if(!r.leads.length&&!append){$('list').innerHTML='<div class="empty">No leads match. Click “Collect new leads” or relax filters.</div>';return}
   shown+=r.leads.length;
-  const html=r.leads.map(l=>`
-  <div class="lead ${l.score>=HOT?'hot':''}" data-id="${esc(l.id)}">
-    <div class="top"><div class="score ${l.score>=HOT?'hot':''}">${l.score}</div>
-      <div style="flex:1;min-width:0">
-        <a class="title" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a>
-        <div class="meta"><span>${esc(l.platform)}</span><span>${l.lead_type==='job'?'job opening':'buyer post'}</span>
-          <span>${esc(l.country||'country unknown')}</span><span>${ago(l.posted_at||l.found_at)}</span>
-          ${l.author?`<span>by ${l.author_url?`<a href="${esc(safeUrl(l.author_url))}" target="_blank" rel="noopener noreferrer">${esc(l.author)}</a>`:esc(l.author)}</span>`:''}
-          ${l.budget_text?`<span class="budget">${esc(l.budget_text)}</span>`:''}</div>
-        <div class="row" style="margin-top:6px">${l.categories.map(c=>`<span class="tag">${esc(c.replace('_',' '))}</span>`).join('')}</div>
-      </div></div>
-    <div class="text">${esc(l.text)}</div>
-    ${l.contact?`<div class="contact">📬 ${esc(l.contact)}</div>`:''}
-    <div class="row" style="margin-top:8px">
-      <select class="st">${STATUSES.map(s=>`<option ${s===l.status?'selected':''}>${s}</option>`).join('')}</select>
-      <button class="more">Show more</button><button class="note">Notes</button>
-    </div>
-    <textarea class="notes" rows="2" placeholder="Notes…" hidden>${esc(l.notes||'')}</textarea>
-  </div>`).join('');
+  const html=r.leads.map(card).join('');
   if(append)$('list').insertAdjacentHTML('beforeend',html);else $('list').innerHTML=html;
   if(shown<r.total)$('list').insertAdjacentHTML('beforeend','<div id="more" class="empty"><button class="primary" onclick="load(true)">Load more ('+(r.total-shown)+' left)</button></div>');
 }
-$('list').addEventListener('click',e=>{
-  const card=e.target.closest('.lead');if(!card)return;
-  if(e.target.classList.contains('more')){const t=card.querySelector('.text');t.classList.toggle('open');e.target.textContent=t.classList.contains('open')?'Show less':'Show more'}
-  if(e.target.classList.contains('note')){const n=card.querySelector('.notes');n.hidden=!n.hidden}
+function patch(id,body){return fetch('/api/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+function refreshBulk(){const n=selected.size;$('bulk').classList.toggle('on',n>0);$('selcount').textContent=n+' selected'}
+$('list').addEventListener('click',async e=>{
+  const c=e.target.closest('.lead');if(!c)return;
+  if(e.target.classList.contains('more')){const t=c.querySelector('.text');t.classList.toggle('open');e.target.textContent=t.classList.contains('open')?'Show less':'Show more'}
+  if(e.target.classList.contains('note')){const n=c.querySelector('.notes');n.hidden=!n.hidden}
+  if(e.target.classList.contains('pick')){const id=c.dataset.id;e.target.checked?selected.add(id):selected.delete(id);c.classList.toggle('sel',e.target.checked);refreshBulk()}
+  if(e.target.classList.contains('draft'))openDraft(c.dataset.id);
 });
 $('list').addEventListener('change',async e=>{
-  const card=e.target.closest('.lead');if(!card)return;
-  if(e.target.classList.contains('st')){await fetch('/api/leads/'+card.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:e.target.value})});
-    if(e.target.value==='ignored'){card.remove();loadStats()}}
-  if(e.target.classList.contains('notes')){await fetch('/api/leads/'+card.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:e.target.value})})}
+  const c=e.target.closest('.lead');if(!c)return;const id=c.dataset.id;
+  if(e.target.classList.contains('st')){await patch(id,{status:e.target.value});
+    if(e.target.value==='contacted'&&!c.querySelector('.fu').value){const d=new Date(Date.now()+3*864e5).toISOString().slice(0,10);c.querySelector('.fu').value=d;await patch(id,{follow_up:d})}
+    if(e.target.value==='ignored'){c.remove();selected.delete(id);refreshBulk();loadStats()}}
+  if(e.target.classList.contains('notes'))await patch(id,{notes:e.target.value});
+  if(e.target.classList.contains('fu'))await patch(id,{follow_up:e.target.value});
+  if(e.target.classList.contains('dv'))await patch(id,{deal_value:e.target.value===''?null:Number(e.target.value)});
 });
-let t;F.concat(['contact']).forEach(k=>$(k).addEventListener(k==='q'?'input':'change',()=>{clearTimeout(t);t=setTimeout(load,k==='q'?250:0)}));
+// ---- bulk
+$('selall').onclick=()=>{document.querySelectorAll('.lead').forEach(c=>{selected.add(c.dataset.id);c.classList.add('sel');c.querySelector('.pick').checked=true});refreshBulk()};
+$('selclear').onclick=()=>{selected.clear();document.querySelectorAll('.lead').forEach(c=>{c.classList.remove('sel');c.querySelector('.pick').checked=false});refreshBulk()};
+$('bulkstatus').onchange=async e=>{const st=e.target.value;if(!st)return;
+  await fetch('/api/leads/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[...selected],status:st})});
+  selected.clear();e.target.value='';refreshBulk();await loadStats();await load()};
+$('bulkexport').onclick=()=>{location.href='/export.csv?ids='+encodeURIComponent([...selected].join(','))};
+// ---- drafts
+let drafts={},cur='short';
+function showDraft(k){cur=k;$('dtext').value=drafts[k]||'';document.querySelectorAll('#dtabs button').forEach(b=>b.classList.toggle('primary',b.dataset.k===k))}
+async function openDraft(id){
+  const r=await fetch(`/api/leads/${id}/draft`);if(!r.ok)return;drafts=await r.json();
+  $('dtabs').innerHTML=[['short','Short DM'],['long','Longer email'],['follow_up','Follow-up']].map(([k,l])=>`<button data-k="${k}">${l}</button>`).join('');
+  $('dtabs').onclick=e=>{if(e.target.dataset.k)showDraft(e.target.dataset.k)};
+  showDraft('short');$('dlg').showModal();
+}
+$('dcopy').onclick=async()=>{try{await navigator.clipboard.writeText($('dtext').value);$('dcopy').textContent='Copied ✓'}catch{$('dtext').select()}setTimeout(()=>$('dcopy').textContent='Copy',1500)};
+$('dclose').onclick=()=>$('dlg').close();
+// ---- saved filters
+async function loadSaved(){
+  const fs=await (await fetch('/api/filters')).json();
+  $('saved').innerHTML=fs.map(f=>`<span class="chip" data-q="${esc(f.query)}">★ ${esc(f.name)} <i data-del="${f.id}" title="delete">✕</i></span>`).join('');
+}
+function applyQuery(qs){const p=new URLSearchParams(qs);F.forEach(k=>{$(k).value=p.get(k)||(k==='since_hours'||k==='min_score'?'0':'')});CB.forEach(k=>$(k).checked=p.get(k)==='1');load()}
+$('saved').onclick=async e=>{
+  if(e.target.dataset.del){await fetch('/api/filters/'+e.target.dataset.del,{method:'DELETE'});loadSaved();return}
+  const c=e.target.closest('.chip');if(c)applyQuery(c.dataset.q)};
+$('savefilter').onclick=async()=>{const name=prompt('Name for this filter (e.g. "Hot automation, US/UK")');if(!name)return;
+  await fetch('/api/filters',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,query:params().toString()})});loadSaved()};
+let t;F.concat(CB).forEach(k=>$(k).addEventListener(k==='q'?'input':'change',()=>{clearTimeout(t);t=setTimeout(load,k==='q'?250:0)}));
 $('collect').onclick=async()=>{
   $('collect').disabled=true;$('collect').textContent='Collecting…';
-  const r=await fetch('/api/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  if(r.status===409){/* already running, just watch */}
+  await fetch('/api/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   poll();
 };
 async function poll(){
@@ -133,7 +217,9 @@ async function poll(){
   $('collect').disabled=false;$('collect').textContent='Collect new leads';
   await loadStats();await load();
 }
-loadStats().then(load);poll();
+const URLP=new URLSearchParams(location.search);
+loadStats().then(()=>{F.forEach(k=>{const v=URLP.get(k);if(v)$(k).value=v});CB.forEach(k=>{if(URLP.get(k)==='1')$(k).checked=true});load()});
+loadSaved();poll();
 </script>
 </body>
 </html>

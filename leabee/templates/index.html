@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leabee Leads</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--mute:#667085;--line:#e4e7ec;--acc:#2f6fed;--hot:#e5484d;--ok:#12a150;--warn:#d9822b}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--line:#262b36;--acc:#6b9bff;--hot:#ff6b6f;--ok:#3ecf8e;--warn:#f0a050}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:5}
+h1{font-size:18px;margin:0}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 12px;min-width:90px}
+.stat b{display:block;font-size:18px}.stat span{color:var(--mute);font-size:12px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;padding:12px 20px;align-items:center}
+input,select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+button{cursor:pointer}button.primary{background:var(--acc);color:#fff;border-color:var(--acc)}
+button:disabled{opacity:.55;cursor:default}
+main{padding:0 20px 40px;max-width:1200px;margin:0 auto}
+.lead{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0}
+.lead.hot{border-left:4px solid var(--hot)}
+.top{display:flex;gap:10px;align-items:flex-start}
+.score{min-width:42px;text-align:center;font-weight:700;border-radius:8px;padding:4px 0;background:var(--bg)}
+.score.hot{background:var(--hot);color:#fff}
+.title{font-weight:600;color:var(--ink);text-decoration:none;word-break:break-word}.title:hover{color:var(--acc)}
+.meta{color:var(--mute);font-size:12px;margin-top:2px;display:flex;gap:10px;flex-wrap:wrap}
+.tag{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px}
+.text{white-space:pre-wrap;color:var(--mute);margin:8px 0;max-height:7.5em;overflow:hidden}
+.text.open{max-height:none}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.contact{color:var(--ok);font-size:12px;word-break:break-all}
+.budget{color:var(--warn);font-weight:600;font-size:12px}
+.empty{text-align:center;color:var(--mute);padding:60px 0}
+#log{font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--mute);padding:0 20px;white-space:pre-wrap}
+textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐝 Leabee Leads</h1>
+  <div class="stats" id="stats"></div>
+  <div class="row">
+    <button class="primary" id="collect">Collect new leads</button>
+    <a href="#" id="csv"><button>Export CSV</button></a>
+  </div>
+</header>
+<div id="log"></div>
+<div class="bar">
+  <input id="q" placeholder="Search text…" style="min-width:200px">
+  <select id="category"><option value="">All services</option>{% for c in categories %}<option value="{{c}}">{{c.replace('_',' ')}}</option>{% endfor %}</select>
+  <select id="country"><option value="">All countries</option></select>
+  <select id="platform"><option value="">All platforms</option></select>
+  <select id="type"><option value="">Buyers + jobs</option><option value="buyer">Buyer posts</option><option value="job">Job openings</option></select>
+  <select id="status"><option value="">Active</option>{% for s in statuses %}<option value="{{s}}">{{s}}</option>{% endfor %}</select>
+  <select id="since_hours"><option value="0">Any age</option><option value="24">Last 24h</option><option value="72">Last 3 days</option><option value="168">Last 7 days</option></select>
+  <select id="min_score"><option value="0">Any score</option><option value="50">50+</option><option value="60">60+</option><option value="70">70+ (hot)</option></select>
+  <select id="sort"><option value="score">Best score</option><option value="new">Newest</option><option value="budget">Biggest budget</option></select>
+  <label><input type="checkbox" id="contact"> has contact</label>
+  <span id="count" style="color:var(--mute)"></span>
+</div>
+<main id="list"></main>
+<script>
+const $=id=>document.getElementById(id);
+const HOT={{hot}};
+const STATUSES={{ statuses|tojson }};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl=u=>/^https?:\/\//i.test(u)?u:'#';
+const F=['q','category','country','platform','type','status','since_hours','min_score','sort'];
+function params(){const p=new URLSearchParams();F.forEach(k=>{const v=$(k).value;if(v&&v!=='0')p.set(k,v)});if($('contact').checked)p.set('contact','1');return p}
+function ago(iso){if(!iso)return 'recent';const s=(Date.now()-new Date(iso))/1000;if(s<3600)return Math.max(1,Math.round(s/60))+'m ago';if(s<86400)return Math.round(s/3600)+'h ago';return Math.round(s/86400)+'d ago'}
+async function loadStats(){
+  const s=await (await fetch('/api/stats')).json();
+  $('stats').innerHTML=[['Leads',s.total],['Hot',s.hot],['With contact',s.with_contact],['Platforms',s.by_platform.length],['Countries',s.by_country.filter(c=>c.k!=='Unknown').length]]
+    .map(([a,b])=>`<div class="stat"><b>${b}</b><span>${a}</span></div>`).join('');
+  fill('country',s.by_country.map(c=>c.k));fill('platform',s.by_platform.map(c=>c.platform));
+}
+function fill(id,vals){const el=$(id),cur=el.value,first=el.firstElementChild.outerHTML;el.innerHTML=first+vals.map(v=>`<option>${esc(v)}</option>`).join('');el.value=cur}
+const PAGE=100;let shown=0;
+async function load(append=false){
+  if(!append)shown=0;
+  const r=await (await fetch(`/api/leads?limit=${PAGE}&offset=${shown}&`+params())).json();
+  $('count').textContent=`${r.total} leads`;
+  $('csv').href='/export.csv?'+params();
+  const old=$('more');if(old)old.remove();
+  if(!r.leads.length&&!append){$('list').innerHTML='<div class="empty">No leads match. Click “Collect new leads” or relax filters.</div>';return}
+  shown+=r.leads.length;
+  const html=r.leads.map(l=>`
+  <div class="lead ${l.score>=HOT?'hot':''}" data-id="${esc(l.id)}">
+    <div class="top"><div class="score ${l.score>=HOT?'hot':''}">${l.score}</div>
+      <div style="flex:1;min-width:0">
+        <a class="title" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a>
+        <div class="meta"><span>${esc(l.platform)}</span><span>${l.lead_type==='job'?'job opening':'buyer post'}</span>
+          <span>${esc(l.country||'country unknown')}</span><span>${ago(l.posted_at||l.found_at)}</span>
+          ${l.author?`<span>by ${l.author_url?`<a href="${esc(safeUrl(l.author_url))}" target="_blank" rel="noopener noreferrer">${esc(l.author)}</a>`:esc(l.author)}</span>`:''}
+          ${l.budget_text?`<span class="budget">${esc(l.budget_text)}</span>`:''}</div>
+        <div class="row" style="margin-top:6px">${l.categories.map(c=>`<span class="tag">${esc(c.replace('_',' '))}</span>`).join('')}</div>
+      </div></div>
+    <div class="text">${esc(l.text)}</div>
+    ${l.contact?`<div class="contact">📬 ${esc(l.contact)}</div>`:''}
+    <div class="row" style="margin-top:8px">
+      <select class="st">${STATUSES.map(s=>`<option ${s===l.status?'selected':''}>${s}</option>`).join('')}</select>
+      <button class="more">Show more</button><button class="note">Notes</button>
+    </div>
+    <textarea class="notes" rows="2" placeholder="Notes…" hidden>${esc(l.notes||'')}</textarea>
+  </div>`).join('');
+  if(append)$('list').insertAdjacentHTML('beforeend',html);else $('list').innerHTML=html;
+  if(shown<r.total)$('list').insertAdjacentHTML('beforeend','<div id="more" class="empty"><button class="primary" onclick="load(true)">Load more ('+(r.total-shown)+' left)</button></div>');
+}
+$('list').addEventListener('click',e=>{
+  const card=e.target.closest('.lead');if(!card)return;
+  if(e.target.classList.contains('more')){const t=card.querySelector('.text');t.classList.toggle('open');e.target.textContent=t.classList.contains('open')?'Show less':'Show more'}
+  if(e.target.classList.contains('note')){const n=card.querySelector('.notes');n.hidden=!n.hidden}
+});
+$('list').addEventListener('change',async e=>{
+  const card=e.target.closest('.lead');if(!card)return;
+  if(e.target.classList.contains('st')){await fetch('/api/leads/'+card.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:e.target.value})});
+    if(e.target.value==='ignored'){card.remove();loadStats()}}
+  if(e.target.classList.contains('notes')){await fetch('/api/leads/'+card.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:e.target.value})})}
+});
+let t;F.concat(['contact']).forEach(k=>$(k).addEventListener(k==='q'?'input':'change',()=>{clearTimeout(t);t=setTimeout(load,k==='q'?250:0)}));
+$('collect').onclick=async()=>{
+  $('collect').disabled=true;$('collect').textContent='Collecting…';
+  const r=await fetch('/api/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(r.status===409){/* already running, just watch */}
+  poll();
+};
+async function poll(){
+  const s=await (await fetch('/api/collect/status')).json();
+  $('log').textContent=s.log.join('\n');
+  if(s.running){setTimeout(poll,2000);return}
+  $('collect').disabled=false;$('collect').textContent='Collect new leads';
+  await loadStats();await load();
+}
+loadStats().then(load);poll();
+</script>
+</body>
+</html>

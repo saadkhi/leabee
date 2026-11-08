@@ -1,0 +1,190 @@
+﻿# Leabee configuration. Edit freely; no code changes needed.
+
+database: data/leads.db
+
+# Leads scoring below this are dropped. Raise it for fewer, hotter leads.
+min_score: 35
+# Ignore posts older than this many days.
+max_age_days: 21
+# Score at or above this is flagged HOT in the dashboard.
+hot_score: 70
+
+# Request pacing (seconds between requests to the same host).
+request_delay: 1.5
+
+reddit:
+  # Subreddits where most posts are buyers/requests. Newest posts are pulled.
+  # buyer_only: every non-seller post counts. Otherwise text must show buying intent.
+  subreddits:
+    - {name: forhire, buyer_only: false}
+    - {name: hiring, buyer_only: false}
+    - {name: slavelabour, buyer_only: false}
+    - {name: HungryArtists, buyer_only: false}
+    - {name: DoneDirtCheap, buyer_only: false}
+    - {name: remotejs, buyer_only: false}
+    - {name: startups, buyer_only: false}
+    - {name: SaaS, buyer_only: false}
+    - {name: smallbusiness, buyer_only: false}
+    - {name: Entrepreneur, buyer_only: false}
+    - {name: sweatystartup, buyer_only: false}
+    - {name: ecommerce, buyer_only: false}
+    - {name: shopify, buyer_only: false}
+    - {name: woocommerce, buyer_only: false}
+    - {name: Wordpress, buyer_only: false}
+    - {name: webdev, buyer_only: false}
+    - {name: nocode, buyer_only: false}
+    - {name: automation, buyer_only: false}
+    - {name: n8n, buyer_only: false}
+    - {name: zapier, buyer_only: false}
+    - {name: AI_Agents, buyer_only: false}
+    - {name: ChatGPT, buyer_only: false}
+    - {name: SideProject, buyer_only: false}
+    - {name: indiehackers, buyer_only: false}
+    - {name: marketing, buyer_only: false}
+    - {name: content_marketing, buyer_only: false}
+    - {name: SEO, buyer_only: false}
+    - {name: copywriting, buyer_only: false}
+    - {name: Entrepreneurs, buyer_only: false}
+    - {name: advancedentrepreneur, buyer_only: false}
+    - {name: androiddev, buyer_only: false}
+    - {name: iOSProgramming, buyer_only: false}
+    - {name: gamedev, buyer_only: false}
+    - {name: datascience, buyer_only: false}
+    - {name: excel, buyer_only: false}
+  # Site-wide Reddit searches (newest first, past week).
+  search_queries:
+    - '"looking for a developer"'
+    - '"need a developer"'
+    - '"looking for a freelance developer"'
+    - '"need someone to build"'
+    - '"looking for someone to build"'
+    - '"hiring a freelancer"'
+    - '"need a freelancer"'
+    - '"looking for a content writer"'
+    - '"need a copywriter"'
+    - '"looking for an automation expert"'
+    - '"need help automating"'
+    - '"looking for a web designer"'
+    - '"need a website built"'
+    - '"looking for a developer for my app"'
+    - '"looking for a technical cofounder"'
+    - '"need an MVP built"'
+    - '"looking for an AI developer"'
+    - '"need a chatbot"'
+    - '"looking for a shopify developer"'
+    - '"looking for a wordpress developer"'
+    - '"need a video editor"'
+    - '"looking for a virtual assistant"'
+    - '"looking for a UI/UX designer"'
+    - '"need a python developer"'
+    - '"willing to pay" developer'
+    - '"willing to pay" automation'
+    - '"who can build" app'
+    - '"can anyone recommend" developer agency'
+  search_window: week
+
+hackernews:
+  threads_back: 3          # last N monthly "Freelancer? Seeking freelancer?" + "Who is hiring?" threads
+  queries:
+    - '"looking for a developer"'
+    - '"need a developer"'
+    - '"looking for a freelancer"'
+    - '"hiring a freelancer"'
+    - '"looking for a technical co-founder"'
+    - '"need someone to build"'
+  query_days: 30
+
+boards:
+  remoteok: true
+  remotive: true
+  weworkremotely: true
+  himalayas: true
+  himalayas_pages: 5
+
+mastodon:
+  instances: [mastodon.social, fosstodon.org, mastodon.online]
+  hashtags: [hiring, freelancejob, remotework, needdeveloper, lookingfordeveloper, startupjobs, contractwork, webdevjobs, wfh]
+
+tinyfish:
+  enabled: true
+  recency_days: 14
+  max_queries_per_run: 400
+  workers: 2
+  # Domain groups searched (Facebook/LinkedIn/X posts are read only from public
+  # search-result snippets, never scraped directly).
+  domain_groups:
+    social: [reddit.com, facebook.com, x.com, linkedin.com, quora.com, threads.net]
+    freelance_boards: [upwork.com, freelancer.com, peopleperhour.com, guru.com]
+    startup: [indiehackers.com, news.ycombinator.com, producthunt.com]
+  # English sweep: phrases x services
+  phrases:
+    - "looking for"
+    - "need"
+    - "hiring"
+  services:
+    - web developer
+    - mobile app developer
+    - freelance developer
+    - custom software developer
+    - SaaS MVP developer
+    - shopify developer
+    - wordpress developer
+    - react developer
+    - python developer
+    - automation expert
+    - zapier OR make.com OR n8n expert
+    - AI developer
+    - chatbot developer
+    - web scraper developer
+    - content writer
+    - copywriter
+    - blog writer
+    - SEO specialist
+    - UI/UX designer
+    - graphic designer
+    - video editor
+    - virtual assistant
+    - data analyst
+    - CRM developer
+    - e-commerce developer
+  # Worldwide sweep: localized phrases per country/language.
+  locales:
+    - {location: GB, language: en, queries: ["looking for freelance web developer", "need app developer", "hire content writer"]}
+    - {location: CA, language: en, queries: ["looking for freelance developer", "need website built", "hire copywriter"]}
+    - {location: AU, language: en, queries: ["looking for freelance developer", "need website built", "hire copywriter"]}
+    - {location: IN, language: en, queries: ["looking for freelance developer", "need website developer", "hire content writer"]}
+    - {location: PK, language: en, queries: ["looking for developer", "need website developer"]}
+    - {location: AE, language: en, queries: ["looking for developer", "need app developer", "hire freelancer"]}
+    - {location: SG, language: en, queries: ["looking for developer", "need automation"]}
+    - {location: ZA, language: en, queries: ["looking for developer", "need website"]}
+    - {location: NG, language: en, queries: ["looking for developer", "need website"]}
+    - {location: PH, language: en, queries: ["looking for developer", "need virtual assistant"]}
+    - {location: ES, language: es, queries: ["busco desarrollador web freelance", "necesito programador", "busco redactor de contenidos", "necesito automatizar"]}
+    - {location: MX, language: es, queries: ["busco desarrollador", "necesito una página web", "busco diseñador"]}
+    - {location: AR, language: es, queries: ["busco programador freelance", "necesito desarrollar una app"]}
+    - {location: BR, language: pt, queries: ["procuro desenvolvedor freelancer", "preciso de um site", "preciso de redator", "preciso automatizar"]}
+    - {location: PT, language: pt, queries: ["procuro programador", "preciso de um website"]}
+    - {location: DE, language: de, queries: ["suche Entwickler Freelancer", "brauche Webentwickler", "suche Texter", "suche App Entwickler"]}
+    - {location: FR, language: fr, queries: ["je cherche un développeur freelance", "besoin d'un développeur web", "cherche rédacteur web", "besoin d'automatiser"]}
+    - {location: IT, language: it, queries: ["cerco sviluppatore freelance", "ho bisogno di un sito web", "cerco copywriter"]}
+    - {location: NL, language: nl, queries: ["zoek freelance developer", "ik heb een website nodig"]}
+    - {location: PL, language: pl, queries: ["szukam programisty", "potrzebuję strony internetowej"]}
+    - {location: TR, language: tr, queries: ["yazılımcı arıyorum", "web sitesi yaptırmak istiyorum"]}
+    - {location: SA, language: ar, queries: ["ابحث عن مبرمج", "اريد تصميم موقع", "ابحث عن كاتب محتوى"]}
+    - {location: EG, language: ar, queries: ["مطلوب مبرمج", "محتاج مطور تطبيقات"]}
+    - {location: ID, language: id, queries: ["mencari developer", "butuh pembuat website", "butuh penulis konten"]}
+    - {location: VN, language: vi, queries: ["tìm lập trình viên", "cần thiết kế website"]}
+    - {location: JP, language: ja, queries: ["開発者を探しています", "ウェブサイト制作 依頼"]}
+    - {location: KR, language: ko, queries: ["개발자 구합니다", "웹사이트 제작 의뢰"]}
+    - {location: RU, language: ru, queries: ["ищу разработчика", "нужен сайт", "ищу копирайтера"]}
+    - {location: UA, language: uk, queries: ["шукаю розробника", "потрібен сайт"]}
+    - {location: KE, language: en, queries: ["looking for developer", "need website"]}
+    - {location: BD, language: en, queries: ["looking for developer", "need website developer"]}
+    - {location: NZ, language: en, queries: ["looking for freelance developer", "need website"]}
+    - {location: IE, language: en, queries: ["looking for freelance developer", "need website"]}
+    - {location: SE, language: sv, queries: ["söker utvecklare", "behöver en hemsida"]}
+    - {location: CO, language: es, queries: ["busco desarrollador", "necesito página web"]}
+    - {location: CL, language: es, queries: ["busco desarrollador", "necesito página web"]}
+
+# Optional: only keep leads that mention these countries (empty = all).
+countries_filter: []

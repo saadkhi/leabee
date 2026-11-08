@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -42,6 +43,10 @@ def run_cycle(cfg: dict, store: Store, sources: list[str] | None = None, partial
         out["alerts"] = notify.alert_new_hot(cfg, store)
         if out["alerts"].get("sent"):
             say(f"alerts: {out['alerts']}")
+        pub = publish_snapshot(cfg, store)
+        out["publish"] = pub
+        if pub.get("published") or pub.get("error"):
+            say(f"publish: {pub}")
         say("done")
         return out
     except Exception as e:  # pragma: no cover
@@ -76,6 +81,60 @@ def make_snapshot(store: Store, out: Path, min_score: int = 0) -> int:
     out.unlink(missing_ok=True)
     tmp.replace(out)
     return n
+
+
+def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=120)
+
+
+def repo_is_public(remote_url: str) -> bool | None:
+    """True/False if GitHub says the repo is public/not-public (unauthenticated check), None if not a GitHub URL."""
+    import re
+
+    import requests
+
+    m = re.search(r"github\.com[:/]+([^/]+)/([^/.]+?)(?:\.git)?/?$", remote_url.strip())
+    if not m:
+        return None
+    try:
+        r = requests.get(f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}", timeout=15,
+                         headers={"Accept": "application/vnd.github+json"})   # deliberately no token
+    except requests.RequestException:
+        return True                     # cannot verify -> treat as public (fail safe)
+    return r.status_code == 200
+
+
+def publish_snapshot(cfg: dict, store: Store, force: bool = False) -> dict:
+    """Snapshot -> git commit -> push, so a connected Vercel project redeploys.
+
+    Only vercel_data/leads.sqlite is committed. Refuses unless the GitHub repo is private, because the snapshot
+    holds lead data (post authors, contact details)."""
+    from .config import ROOT
+
+    pcfg = cfg.get("publish", {}) or {}
+    if not (force or pcfg.get("enabled")):
+        return {"published": False, "skipped": "publish disabled"}
+    remote, branch = pcfg.get("remote", "origin"), pcfg.get("branch", "main")
+    url = _git("remote", "get-url", remote, cwd=ROOT)
+    if url.returncode != 0:
+        return {"published": False, "error": f"no git remote '{remote}'"}
+    if not pcfg.get("allow_public"):
+        pub = repo_is_public(url.stdout)
+        if pub is not False:
+            return {"published": False, "error": "refusing to publish lead data: the GitHub repo is public (or could not be "
+                    "verified private). Make it private, or set publish.allow_public: true if you really mean it."}
+    out = ROOT / "vercel_data" / "leads.sqlite"
+    n = make_snapshot(store, out, int(pcfg.get("min_score", 0)))
+    _git("add", "-f", "vercel_data/leads.sqlite", cwd=ROOT)
+    if _git("diff", "--cached", "--quiet", "--", "vercel_data/leads.sqlite", cwd=ROOT).returncode == 0:
+        return {"published": False, "leads": n, "skipped": "no changes"}
+    c = _git("commit", "-m", f"chore: refresh lead snapshot ({n} leads)", "--", "vercel_data/leads.sqlite", cwd=ROOT)
+    if c.returncode != 0:
+        return {"published": False, "error": (c.stderr or c.stdout).strip()[:300]}
+    p = _git("push", remote, f"HEAD:{branch}", cwd=ROOT)
+    if p.returncode != 0:
+        return {"published": False, "committed": True, "error": p.stderr.strip()[:300]}
+    return {"published": True, "leads": n}
 
 
 def maybe_backup(cfg: dict, store: Store) -> str | None:

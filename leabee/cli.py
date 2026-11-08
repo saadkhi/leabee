@@ -64,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     ar.add_argument("-n", "--limit", type=int, default=None)
     sub.add_parser("alert", help="send alerts for new hot leads (Telegram / Discord / email, see .env.example)")
     sub.add_parser("backup", help="copy the database to data/backups")
+    sub.add_parser("publish", help="snapshot, commit and push to GitHub so Vercel redeploys (private repos only)")
     sn = sub.add_parser("snapshot", help="write vercel_data/leads.sqlite (read-only copy for the Vercel deployment)")
     sn.add_argument("--min-score", type=int, default=0)
     d = sub.add_parser("draft", help="print reply drafts for a lead id")
@@ -100,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
         al = notify.alert_new_hot(cfg, store)
         if al.get("sent"):
             print("alerts:", al)
+        from .jobs import publish_snapshot
+        pub = publish_snapshot(cfg, store)
+        if pub.get("published") or pub.get("error"):
+            print("publish:", pub)
         print(f"\nTOTAL new leads: {sum(r['new'] for r in res)}  | in database: {store.stats()['total']}")
         return 0 if not any(r["error"] for r in res) else 1
     if a.cmd == "enrich":
@@ -138,6 +143,11 @@ def main(argv: list[str] | None = None) -> int:
         from .jobs import backup_dir
         print("backup:", store.backup(backup_dir(cfg), int((cfg.get("backup", {}) or {}).get("keep", 14))))
         return 0
+    if a.cmd == "publish":
+        from .jobs import publish_snapshot
+        res = publish_snapshot(cfg, store, force=True)
+        print(res)
+        return 0 if res.get("published") or res.get("skipped") else 1
     if a.cmd == "snapshot":
         from .config import ROOT
         from .jobs import make_snapshot

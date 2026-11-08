@@ -23,6 +23,8 @@ concurrency:
 
 jobs:
   refresh:
+    # Safety: never commit lead data into a public repository.
+    if: ${{ github.event.repository.private == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

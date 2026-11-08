@@ -84,6 +84,11 @@ Vercel Hobby is for personal, non-commercial use; check their terms for yours.
    The workflow collects every 6 hours, commits a new snapshot and Vercel redeploys. Reddit is excluded there because it
    often blocks datacenter IPs; run it locally with `python -m leabee collect -s reddit`, then re-snapshot and push.
 
+**Auto-commit to GitHub**: set `publish.enabled: true` in `config.yaml` and every collection (`collect`, the dashboard button,
+`watch`, `serve --auto-collect`) ends by snapshotting, committing only `vercel_data/leads.sqlite` and pushing it, so Vercel
+redeploys. Run it by hand with `python -m leabee publish`. **It refuses to push unless the GitHub repo is private** (checked
+on every run), and the Actions workflow is skipped on public repos. Make the repo private first (GitHub > Settings > Danger Zone).
+
 CLI alternative: `npm i -g vercel`, then `vercel --prod` in this folder (the `.vercelignore` excludes secrets and local data).
 
 Limits: edits (status, notes, follow-ups, board moves, saved filters) and the Collect button are disabled on Vercel and return

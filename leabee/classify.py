@@ -354,7 +354,108 @@ def country_from_code(code: str) -> str:
     return _CC_TO_COUNTRY.get((code or "").upper(), "")
 
 
+_CURRENCY_HINTS = [(re.compile(r"₹|\bINR\b|\brupees?\b|\blakhs?\b|\bcrore\b", I), "India"),
+                   (re.compile(r"\bPKR\b|\bRs\.? ?\d", I), "Pakistan"),
+                   (re.compile(r"£|\bGBP\b", I), "United Kingdom"),
+                   (re.compile(r"\bAUD\b|\bA\$|\bAU\$", I), "Australia"),
+                   (re.compile(r"\bCAD\b|\bC\$|\bCA\$", I), "Canada"),
+                   (re.compile(r"\bAED\b|\bdirhams?\b", I), "UAE"),
+                   (re.compile(r"\bNGN\b|₦", I), "Nigeria"),
+                   (re.compile(r"\bZAR\b", I), "South Africa"),
+                   (re.compile(r"\bPHP\b|₱", I), "Philippines"),
+                   (re.compile(r"\bBRL\b|R\$ ?\d", I), "Brazil"),
+                   (re.compile(r"\bMXN\b", I), "Mexico"),
+                   (re.compile(r"\bPLN\b|\bzł\b", I), "Poland"),
+                   (re.compile(r"\bTRY\b|₺", I), "Turkey"),
+                   (re.compile(r"\bIDR\b|\bRp ?\d", I), "Indonesia"),
+                   (re.compile(r"₩|\bKRW\b", I), "South Korea"),
+                   (re.compile(r"\bJPY\b", I), "Japan"),
+                   (re.compile(r"\bBDT\b|৳", I), "Bangladesh"),
+                   (re.compile(r"\bKES\b|\bKsh\b", I), "Kenya"),
+                   (re.compile(r"\bEGP\b", I), "Egypt")]
+_TLD_COUNTRY = {"in": "India", "pk": "Pakistan", "uk": "United Kingdom", "au": "Australia", "ca": "Canada", "de": "Germany",
+                "fr": "France", "es": "Spain", "it": "Italy", "nl": "Netherlands", "br": "Brazil", "mx": "Mexico",
+                "ng": "Nigeria", "za": "South Africa", "ke": "Kenya", "ph": "Philippines", "id": "Indonesia",
+                "pl": "Poland", "tr": "Turkey", "jp": "Japan", "kr": "South Korea", "bd": "Bangladesh",
+                "ae": "UAE", "sg": "Singapore", "eg": "Egypt", "se": "Sweden", "ie": "Ireland", "nz": "New Zealand"}
+_TLD_RE = re.compile(r"[\w.-]+@[\w-]+(?:\.[\w-]+)*?\.([a-z]{2})\b|https?://[\w.-]+?\.([a-z]{2})(?:/|\s|$)", I)
+_PHONE_PREFIX = [(re.compile(r"\+91[\s-]?\d"), "India"), (re.compile(r"\+92[\s-]?\d"), "Pakistan"),
+                 (re.compile(r"\+44[\s-]?\d"), "United Kingdom"), (re.compile(r"\+61[\s-]?\d"), "Australia"),
+                 (re.compile(r"\+971[\s-]?\d"), "UAE"), (re.compile(r"\+234[\s-]?\d"), "Nigeria"),
+                 (re.compile(r"\+63[\s-]?\d"), "Philippines"), (re.compile(r"\+880[\s-]?\d"), "Bangladesh"),
+                 (re.compile(r"\+27[\s-]?\d"), "South Africa"), (re.compile(r"\+254[\s-]?\d"), "Kenya")]
+_TZ_COUNTRY = [(re.compile(r"\b(?:IST|India Standard Time)\b"), "India"), (re.compile(r"\bPKT\b"), "Pakistan"),
+               (re.compile(r"\b(?:AEST|AEDT)\b"), "Australia"),
+               (re.compile(r"\bSAST\b"), "South Africa"), (re.compile(r"\bPHT\b"), "Philippines")]
+_LANG_TO_COUNTRY = {"ja": "Japan", "ko": "South Korea", "tr": "Turkey", "pl": "Poland", "id": "Indonesia",
+                    "vi": "Vietnam", "uk": "Ukraine", "th": "Thailand"}
+
+
+def _country_hints(text: str) -> str:
+    """Weaker signals used only when no country/city is named: currency, email/site TLD, phone code, timezone, language."""
+    head = (text or "")[:3000]
+    for rx, c in _CURRENCY_HINTS:
+        if rx.search(head):
+            return c
+    for rx, c in _PHONE_PREFIX:
+        if rx.search(head):
+            return c
+    for rx, c in _TZ_COUNTRY:
+        if rx.search(head):
+            return c
+    for m in _TLD_RE.finditer(head):
+        c = _TLD_COUNTRY.get((m.group(1) or m.group(2) or "").lower())
+        if c:
+            return c
+    return _LANG_TO_COUNTRY.get(detect_language(head), "")
+
+
+_SCRIPTS = [("ja", re.compile(r"[぀-ヿ]")), ("ko", re.compile(r"[가-힯]")),
+            ("zh", re.compile(r"[一-鿿]")), ("ar", re.compile(r"[؀-ۿ]")),
+            ("hi", re.compile(r"[ऀ-ॿ]")), ("th", re.compile(r"[฀-๿]")),
+            ("ru", re.compile(r"[Ѐ-ӿ]"))]
+_STOP = {
+    "en": "the and for with you your need looking want have are this that from will can our please",
+    "es": "el la los las para con una que busco necesito por del como más está tengo",
+    "pt": "para com uma que preciso procuro não você mais está tenho meu seu",
+    "fr": "le la les pour avec une que je cherche besoin pas vous dans est sur nous",
+    "de": "der die das und für mit ich suche brauche nicht ein eine wir sie auf",
+    "it": "il che per con una cerco ho bisogno non sono della sul nel anche",
+    "nl": "het een voor met zoek ik niet van naar ons deze die",
+    "id": "yang dan untuk dengan saya mencari butuh tidak ini itu dari pada",
+    "tr": "bir ve için ile arıyorum yapmak istiyorum bu çok daha ben",
+    "pl": "szukam potrzebuję nie jest dla się oraz jak czy mam",
+    "vi": "tôi cần tìm một và của cho không là có những",
+}
+_STOP_SETS = {k: set(v.split()) for k, v in _STOP.items()}
+
+
+def detect_language(text: str) -> str:
+    """Cheap language guess (ISO-639-1) from script + stopword hits. '' when unsure."""
+    t = (text or "")[:1500]
+    if not t.strip():
+        return ""
+    for code, rx in _SCRIPTS:
+        if len(rx.findall(t)) >= 3:
+            if code == "ru" and re.search(r"[іїєґ]", t, I):
+                return "uk"
+            return code
+    words = re.findall(r"[^\W\d_]+", t.lower())
+    if not words:
+        return ""
+    best, best_n = "", 0
+    for code, stop in _STOP_SETS.items():
+        n = sum(1 for w in words if w in stop)
+        if n > best_n:
+            best, best_n = code, n
+    return best if best_n >= 2 else ("en" if len(words) >= 5 else "")
+
+
 def detect_country(text: str, hint: str = "") -> str:
+    return _detect_country_named(text, hint) or _country_hints(text)
+
+
+def _detect_country_named(text: str, hint: str = "") -> str:
     for src in (hint, text):
         if not src:
             continue
@@ -415,6 +516,8 @@ def extract_budget(text: str) -> tuple[str, float | None]:
     fx = _FX.get(cur_key, _FX.get((cur_key or "").upper(), 1))
     usd = val * fx
     full = re.sub(r"\s+", " ", full).strip()
+    if usd > 2_000_000:
+        return full, None           # implausible for a freelance gig; keep the text only
     if per or usd < 5:
         return full, None if per else (usd if usd >= 5 else None)
     return full, usd
@@ -598,6 +701,7 @@ def score_item(item: RawItem, now: datetime | None = None, cfg: dict | None = No
 
     country = detect_country(blob, item.location_hint)
     return {
+        "language": detect_language(blob),
         "categories": strong_cats or cats,
         "score": int(score),
         "budget_text": budget_text,

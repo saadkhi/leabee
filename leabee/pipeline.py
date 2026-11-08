@@ -13,7 +13,7 @@ from .storage import Store, now_iso
 from .textutil import canonical_url, clip, lead_id
 
 log = logging.getLogger("leabee.pipeline")
-ALL_SOURCES = ["reddit", "hackernews", "boards", "mastodon", "tinyfish"]
+ALL_SOURCES = ["reddit", "hackernews", "boards", "mastodon", "github", "tinyfish"]
 
 
 def item_to_lead(item: RawItem, cfg: dict, now: datetime | None = None) -> dict | None:
@@ -36,7 +36,7 @@ def item_to_lead(item: RawItem, cfg: dict, now: datetime | None = None) -> dict 
         "posted_at": item.posted_at.isoformat(timespec="seconds") if item.posted_at else None,
         "found_at": now_iso(), "categories": ",".join(sc["categories"]), "country": sc["country"],
         "budget_text": sc["budget_text"], "budget_usd": sc["budget_usd"], "contact": sc["contact"],
-        "score": sc["score"], "reasons": ",".join(sc["reasons"]), "enriched": 0,
+        "score": sc["score"], "reasons": ",".join(sc["reasons"]), "enriched": 0, "language": sc["language"],
     }
 
 
@@ -46,9 +46,13 @@ def run_source(name: str, cfg: dict, store: Store, http: Http | None = None,
     started = now_iso()
     fetched = kept = new = 0
     error = ""
+    run_cfg = cfg
+    if name == "reddit" and cfg.get("_partial"):
+        run_cfg = {**cfg, "_reddit_offset": int(store.get_meta("reddit_offset", "0") or 0)}
+        store.set_meta("reddit_offset", str(int(run_cfg["_reddit_offset"]) + 1))
     try:
         collect = registry()[name]
-        for item in collect(cfg, http):
+        for item in collect(run_cfg, http):
             fetched += 1
             lead = item_to_lead(item, cfg)
             if lead is None:
@@ -68,7 +72,9 @@ def run_source(name: str, cfg: dict, store: Store, http: Http | None = None,
 
 
 def run_all(cfg: dict, store: Store, sources: list[str] | None = None,
-            progress: Callable[[str], None] | None = None) -> list[dict]:
+            progress: Callable[[str], None] | None = None, partial: bool = False) -> list[dict]:
+    if partial:
+        cfg = {**cfg, "_partial": True}
     http = Http(delay=float(cfg.get("request_delay", 1.5)))
     return [run_source(s, cfg, store, http, progress) for s in (sources or ALL_SOURCES)]
 

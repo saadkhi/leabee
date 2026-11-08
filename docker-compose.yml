@@ -1,0 +1,11 @@
+services:
+  leabee:
+    build: .
+    ports:
+      - "8765:8765"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    # Collect in the background every 2 hours (rotating slice of Reddit each time).
+    command: ["python", "-m", "leabee", "serve", "--host", "0.0.0.0", "--port", "8765", "--auto-collect", "120"]
+    restart: unless-stopped

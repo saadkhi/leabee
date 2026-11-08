@@ -51,6 +51,12 @@ reddit:
     - {name: gamedev, buyer_only: false}
     - {name: datascience, buyer_only: false}
     - {name: excel, buyer_only: false}
+    - {name: webdesign, buyer_only: false}
+    - {name: AppIdeas, buyer_only: false}
+    - {name: microsaas, buyer_only: false}
+    - {name: startup, buyer_only: false}
+    - {name: NoCodeSaaS, buyer_only: false}
+    - {name: Upwork, buyer_only: false}
   # Site-wide Reddit searches (newest first, past week).
   search_queries:
     - '"looking for a developer"'
@@ -82,6 +88,40 @@ reddit:
     - '"who can build" app'
     - '"can anyone recommend" developer agency'
   search_window: week
+  # Scheduled (background) runs take a rotating slice so each run is short; a manual
+  # "Collect" or `collect` command still sweeps everything.
+  per_run: {subreddits: 12, queries: 7}
+
+github:
+  queries:
+    - '"looking for a developer" is:issue is:open'
+    - '"hiring" "freelance" is:issue is:open'
+    - 'label:bounty is:issue is:open'
+    - '"paid" "contract" "developer needed" is:issue is:open'
+
+# Background collection while the dashboard server runs (or use `python -m leabee watch`).
+schedule:
+  enabled: false
+  every_minutes: 120
+  partial: true
+
+# Optional AI second opinion on borderline leads; needs ANTHROPIC_API_KEY in .env.
+ai:
+  enabled: true
+  model: claude-haiku-5-5
+  band: [35, 75]
+  max_per_run: 60
+
+# Alerts for new leads at/above this score (needs Telegram/Discord/email in .env).
+alerts:
+  min_score: 80
+  max_per_run: 10
+
+# Daily database backup, kept for N days.
+backup:
+  enabled: true
+  dir: data/backups
+  keep: 14
 
 hackernews:
   threads_back: 3          # last N monthly "Freelancer? Seeking freelancer?" + "Who is hiring?" threads
@@ -113,7 +153,7 @@ tinyfish:
   # Domain groups searched (Facebook/LinkedIn/X posts are read only from public
   # search-result snippets, never scraped directly).
   domain_groups:
-    social: [reddit.com, facebook.com, x.com, linkedin.com, quora.com, threads.net]
+    social: [reddit.com, facebook.com, x.com, linkedin.com, quora.com, threads.net, t.me]
     freelance_boards: [upwork.com, freelancer.com, peopleperhour.com, guru.com]
     startup: [indiehackers.com, news.ycombinator.com, producthunt.com]
   # English sweep: phrases x services

@@ -1,38 +1,61 @@
-name: Refresh leads
+name: Collect leads
 
-# Free pipeline: GitHub Actions collects leads on a schedule, commits the updated snapshot,
-# and Vercel (connected to this repo) redeploys automatically.
-# KEEP THIS REPOSITORY PRIVATE: the snapshot contains lead data.
+# Collects leads into your Turso database. Runs every 6 hours, and when you press "Collect new leads"
+# on the Vercel dashboard (which calls this workflow). No lead data is ever committed to the repo,
+# so the repository can stay public.
 #
-# Secrets to add (Settings > Secrets and variables > Actions):
-#   TINYFISH_API_KEY   (required for the TinyFish source)
-#   ANTHROPIC_API_KEY  (optional: AI review)
-#   GITHUB_TOKEN is provided automatically.
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   TURSO_DATABASE_URL, TURSO_AUTH_TOKEN   required
+#   TINYFISH_API_KEY                       required for the TinyFish source
+#   ANTHROPIC_API_KEY                      optional: AI review of borderline leads
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DISCORD_WEBHOOK_URL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD,
+#   ALERT_EMAIL_TO                         optional: alerts for new hot leads
+# GITHUB_TOKEN (for the GitHub issues source) is provided automatically.
 
 on:
   schedule:
-    - cron: "17 */6 * * *"      # every 6 hours
-  workflow_dispatch: {}
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Comma-separated sources"
+        default: "reddit,hackernews,boards,mastodon,github,tinyfish"
+      partial:
+        description: "Rotating slice of Reddit (short run) instead of the full sweep"
+        default: "true"
+      enrich:
+        description: "Fetch full pages for the top TinyFish leads"
+        default: "true"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: refresh-leads
+  group: collect-leads
   cancel-in-progress: false
 
 jobs:
-  refresh:
-    # Safety: never commit lead data into a public repository.
-    if: ${{ github.event.repository.private == true }}
+  collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
-      LEABEE_DB: vercel_data/work.db          # working copy; only the compact snapshot is committed
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
       TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
       LEABEE_CONTACT: github-actions
+      SOURCES: ${{ inputs.sources || 'reddit,hackernews,boards,mastodon,github,tinyfish' }}
+      PARTIAL: ${{ inputs.partial || 'true' }}
+      ENRICH: ${{ inputs.enrich || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,27 +64,18 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
-      - name: Seed working DB from the last snapshot
+      - name: Check database connection
         run: |
-          mkdir -p vercel_data
-          if [ -f vercel_data/leads.sqlite ]; then cp vercel_data/leads.sqlite "$LEABEE_DB"; fi
-
-      # Reddit often rate-limits or blocks datacenter IPs such as GitHub's runners, so it is left out here.
-      # Run Reddit from your own PC (`python -m leabee collect -s reddit`) and push a new snapshot when you like.
-      - name: Collect
-        run: python -m leabee collect -s hackernews,boards,mastodon,github,tinyfish --enrich 100
-
-      - name: Snapshot
-        run: |
-          python -m leabee snapshot
-          rm -f "$LEABEE_DB" "$LEABEE_DB-wal" "$LEABEE_DB-shm"
-
-      - name: Commit snapshot
-        run: |
-          git config user.name "leabee-bot"
-          git config user.email "leabee-bot@users.noreply.github.com"
-          git add -f vercel_data/leads.sqlite
-          if git diff --cached --quiet; then echo "no changes"; else
-            git commit -m "chore: refresh lead snapshot"
-            git push
+          if [ -z "$TURSO_DATABASE_URL" ] || [ -z "$TURSO_AUTH_TOKEN" ]; then
+            echo "::error::Add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN as repository secrets."; exit 1
           fi
+          python -m leabee stats | head -1
+
+      # Reddit blocks some datacenter IPs. Leabee stops asking a host after 3 refusals, so a blocked Reddit
+      # costs seconds, not minutes; Reddit posts are still found through the TinyFish source.
+      - name: Collect
+        run: |
+          ARGS="-s $SOURCES"
+          if [ "$PARTIAL" = "true" ]; then ARGS="$ARGS --partial"; fi
+          if [ "$ENRICH" = "true" ]; then ARGS="$ARGS --enrich 100"; fi
+          python -m leabee collect $ARGS || [ $? -eq 1 ]   # exit 1 = some source failed; the rest still saved

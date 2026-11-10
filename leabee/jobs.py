@@ -69,7 +69,7 @@ def make_snapshot(store: Store, out: Path, min_score: int = 0) -> int:
     with store._lock:
         dst = sqlite3.connect(str(tmp))
         try:
-            store._conn.backup(dst)
+            store._copy_to(dst)
             dst.execute("DELETE FROM leads WHERE status='ignored' OR score<?", (min_score,))
             dst.execute("DELETE FROM runs WHERE id NOT IN (SELECT id FROM runs ORDER BY id DESC LIMIT 50)")
             dst.commit()
@@ -140,8 +140,8 @@ def publish_snapshot(cfg: dict, store: Store, force: bool = False) -> dict:
 def maybe_backup(cfg: dict, store: Store) -> str | None:
     """At most one backup per calendar day."""
     bcfg = cfg.get("backup", {}) or {}
-    if bcfg.get("enabled") is False:
-        return None
+    if bcfg.get("enabled") is False or getattr(store, "remote", False):
+        return None             # Turso keeps its own copy; use `python -m leabee backup` to pull a local one
     today = datetime.now().strftime("%Y-%m-%d")
     if store.get_meta("last_backup") == today:
         return None

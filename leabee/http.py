@@ -14,6 +14,8 @@ log = logging.getLogger("leabee.http")
 class Http:
     """requests wrapper with per-host pacing, retries and a polite User-Agent."""
 
+    BREAKER = 3                                  # give up on a host after this many consecutive failures
+
     def __init__(self, delay: float = 1.5, timeout: float = 25, retries: int = 4):
         self.delay = delay
         self.timeout = timeout
@@ -25,6 +27,7 @@ class Http:
         self.session.headers.update({"User-Agent": ua, "Accept": "*/*"})
         self._last: dict[str, float] = {}
         self._cool: dict[str, float] = {}
+        self._fails: dict[str, int] = {}          # consecutive failures per host (circuit breaker)
         self._lock = threading.Lock()
 
     def _pace(self, host: str) -> None:
@@ -49,6 +52,9 @@ class Http:
     def request(self, method: str, url: str, **kw) -> requests.Response | None:
         host = urlsplit(url).netloc
         kw.setdefault("timeout", self.timeout)
+        if self._fails.get(host, 0) >= self.BREAKER:
+            log.warning("skipping %s: host keeps refusing requests (blocked or rate-limited)", host)
+            return None
         for attempt in range(1, self.retries + 1):
             self._pace(host)
             try:
@@ -58,6 +64,11 @@ class Http:
                 time.sleep(1.5 * attempt)
                 continue
             self._note_limits(host, r)
+            if r.status_code in (401, 403):
+                self._fails[host] = self._fails.get(host, 0) + 1
+                return r
+            if r.status_code < 400:
+                self._fails[host] = 0
             if r.status_code == 429 or r.status_code >= 500:
                 retry_after = r.headers.get("Retry-After", "")
                 reset = r.headers.get("x-ratelimit-reset", "")
@@ -71,6 +82,7 @@ class Http:
                 time.sleep(min(wait, 60))
                 continue
             return r
+        self._fails[host] = self._fails.get(host, 0) + 1
         return None
 
     def get(self, url: str, **kw):

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import load_config
 from .pipeline import ALL_SOURCES, enrich, run_all
-from .storage import Store
+from .storage import Store, migrate, open_store
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -35,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("collect", help="gather and score new leads")
     c.add_argument("-s", "--sources", default=",".join(ALL_SOURCES),
                    help=f"comma list of: {', '.join(ALL_SOURCES)}")
+    c.add_argument("--partial", action="store_true", help="rotating slice of Reddit (short run) instead of the full sweep")
     c.add_argument("--enrich", type=int, default=0, metavar="N", help="after collecting, fetch full text for top N TinyFish leads")
 
     e = sub.add_parser("enrich", help="fetch full page text for top TinyFish leads and re-score")
@@ -64,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     ar.add_argument("-n", "--limit", type=int, default=None)
     sub.add_parser("alert", help="send alerts for new hot leads (Telegram / Discord / email, see .env.example)")
     sub.add_parser("backup", help="copy the database to data/backups")
+    sub.add_parser("migrate-to-remote", help="copy the local SQLite database into Turso (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN)")
     sub.add_parser("publish", help="snapshot, commit and push to GitHub so Vercel redeploys (private repos only)")
     sn = sub.add_parser("snapshot", help="write vercel_data/leads.sqlite (read-only copy for the Vercel deployment)")
     sn.add_argument("--min-score", type=int, default=0)
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     _setup_logging(a.verbose)
     cfg = load_config(a.config)
-    store = Store(cfg["database"])
+    store = open_store(cfg)
 
     if a.cmd == "collect":
         srcs = [s.strip() for s in a.sources.split(",") if s.strip()]
@@ -91,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         if bad:
             print(f"unknown source(s): {bad}. choose from {ALL_SOURCES}", file=sys.stderr)
             return 2
-        res = run_all(cfg, store, srcs, progress=print)
+        res = run_all(cfg, store, srcs, progress=print, partial=a.partial)
         if a.enrich:
             print("enrich:", enrich(cfg, store, a.enrich, progress=print))
         from . import ai, notify
@@ -142,6 +144,15 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "backup":
         from .jobs import backup_dir
         print("backup:", store.backup(backup_dir(cfg), int((cfg.get("backup", {}) or {}).get("keep", 14))))
+        return 0
+    if a.cmd == "migrate-to-remote":
+        if not store.remote:
+            print("Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in .env first.", file=sys.stderr)
+            return 2
+        local = Store(cfg["database"])
+        print("copying", cfg["database"], "->", store.path)
+        res = migrate(local, store)
+        print("done:", res, "| leads now in Turso:", store.stats()["total"])
         return 0
     if a.cmd == "publish":
         from .jobs import publish_snapshot

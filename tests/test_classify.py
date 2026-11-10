@@ -77,9 +77,12 @@ def test_budget_and_contact_raise_score():
 
 
 def test_job_opening_contract_beats_fulltime():
-    ft = score_item(item("Senior React Developer", "full-time react developer", lead_type="job"), NOW)
+    ft_it = item("Senior React Developer", "full-time react developer", lead_type="job")
+    assert score_item(ft_it, NOW) is None                                   # employee roles are dropped by default
+    ft = score_item(ft_it, NOW, {"keep_roles": True})
     ct = score_item(item("React Developer (contract)", "freelance contract react developer", lead_type="job"), NOW)
-    assert ct["score"] > ft["score"]
+    assert ft["kind"] == "role" and ft["score"] <= 45
+    assert ct["kind"] == "gig" and ct["score"] > ft["score"]
 
 
 # ---- helpers ---------------------------------------------------------------------
@@ -179,7 +182,8 @@ def test_local_employment_ad_dropped_for_tinyfish_only():
     it.source = "tinyfish"
     assert score_item(it, NOW) is None
     it.source = "reddit"
-    assert score_item(it, NOW) is not None
+    assert score_item(it, NOW) is None                                      # an employee ad is not a freelance lead anywhere
+    assert score_item(it, NOW, {"keep_roles": True})["kind"] == "role"
 
 
 def test_question_without_fix_still_buyer():

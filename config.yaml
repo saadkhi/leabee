@@ -2,12 +2,24 @@
 
 database: data/leads.db
 
-# Leads scoring below this are dropped. Raise it for fewer, hotter leads.
+# YOUR PROFILE: makes scoring specific to what you sell. Leave lists empty to score generically.
+profile:
+  services: []              # categories you sell, e.g. [web_development, automation, ai_ml, content_writing]
+  skills: []                # keywords that boost a lead, e.g. [python, n8n, shopify, react]
+  avoid: []                 # words that make a lead a hard no, e.g. [adult, gambling, crypto, "on-site"]
+  languages: []             # post languages you can serve, e.g. [en]; others are penalised
+  countries_preferred: []   # bonus for these countries
+  min_budget_usd: 0
+
+# Keep full-time employee job ads? Default no: they are not freelance leads.
+keep_roles: false
+
+# Leads scoring below this are dropped. Raise it for fewer, hotter leads. Grades: A>=80, B 65-79, C 50-64, D<50.
 min_score: 35
 # Ignore posts older than this many days.
 max_age_days: 21
 # Score at or above this is flagged HOT in the dashboard.
-hot_score: 70
+hot_score: 65
 
 # Request pacing (seconds between requests to the same host).
 request_delay: 1.5
@@ -116,6 +128,23 @@ ai:
 alerts:
   min_score: 80
   max_per_run: 10
+
+# Google Maps prospects (omkarcloud Google Maps Extractor desktop app). See leabee/collectors/gmaps.py.
+# Either run the app and list searches here, or drop its CSV/JSON exports into data/maps/.
+gmaps:
+  api_url: http://localhost:8000
+  searches: []                       # e.g. ["restaurants in Austin", "dentists in Dubai"]
+  max_results_per_search: 120
+  target_categories: []              # e.g. [restaurant, dentist, real estate]
+  # task_template: {queries: ["{query}"], max_results: 120}   # adjust to your app's API docs if the input fields differ
+
+# Page extractors for company websites: plain -> Crawl4AI (free browser) -> TinyFish Fetch -> AI agents (need keys).
+extractors:
+  enrich_sites: true
+  sites_per_run: 20
+  min_score: 50
+  use_agents: false                  # AgentQL / Stagehand / Browser Use / Skyvern as a last resort (costs money)
+  page_order: [plain, crawl4ai, tinyfish]
 
 # After each collection: snapshot the database, commit it and push to GitHub so Vercel redeploys.
 # Refuses to push unless the GitHub repo is PRIVATE (the snapshot contains lead data).

@@ -142,6 +142,6 @@ def test_crosspost_dedupe():
     s.upsert(_lead("4", author="eve", title="short", url="https://u/4"))   # too short to dedupe
     assert s.query()[1] == 3
     # existing duplicates are cleaned by dedupe()
-    s._conn.execute("INSERT INTO leads (id,source,platform,lead_type,title,text,url,found_at,author) VALUES ('9','r','R','buyer','[Hiring] Zoho developer remote india','', 'https://u/9','2026','bob')")
+    s._conn.execute("INSERT INTO leads (id,source,platform,lead_type,title,text,url,found_at,author) VALUES ('9','r','R','buyer','[Hiring] Zoho developer remote india','', 'https://u/9','2099-01-01','bob')")
     s._conn.commit()
     assert s.dedupe() == 1 and s.get("9") is None

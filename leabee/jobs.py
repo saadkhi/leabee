@@ -141,7 +141,7 @@ def maybe_backup(cfg: dict, store: Store) -> str | None:
     """At most one backup per calendar day."""
     bcfg = cfg.get("backup", {}) or {}
     if bcfg.get("enabled") is False or getattr(store, "remote", False):
-        return None             # Turso keeps its own copy; use `python -m leabee backup` to pull a local one
+        return None             # Neon keeps its own copy; use `python -m leabee backup` to pull a local one
     today = datetime.now().strftime("%Y-%m-%d")
     if store.get_meta("last_backup") == today:
         return None

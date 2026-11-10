@@ -37,6 +37,13 @@ def run_cycle(cfg: dict, store: Store, sources: list[str] | None = None, partial
         if do_enrich:
             out["enrich"] = enrich(cfg, store, int((cfg.get("tinyfish", {}) or {}).get("enrich_per_run", 100)))
             say(f"enrich: {out['enrich']}")
+        ecfg = cfg.get("extractors") or {}
+        if ecfg.get("enrich_sites", True):
+            from .pipeline import enrich_sites
+            out["sites"] = enrich_sites(cfg, store, int(ecfg.get("sites_per_run", 20)), int(ecfg.get("min_score", 50)),
+                                        use_agents=bool(ecfg.get("use_agents", False)), progress=say)
+            if out["sites"].get("crawled"):
+                say(f"sites: {out['sites']}")
         out["ai"] = ai.review(cfg, store, progress=say)
         if out["ai"].get("reviewed"):
             say(f"ai: {out['ai']}")

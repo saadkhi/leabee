@@ -6,6 +6,8 @@ import re
 from datetime import datetime, timezone
 
 from .models import RawItem
+from .details import extract_details
+from .scoring import classify_kind, grade, next_action, score_gig
 
 I = re.IGNORECASE
 
@@ -216,14 +218,14 @@ NOISE_PATTERNS = [re.compile(p, I) for p in [
     r"\bcommunity\b.*\b(?:build|grow|join)\b",
 ]]
 
-PAY_SIGNAL = re.compile(r"(?:hiring|hire|budget|willing to pay|paid|pay(?:ing)?\s+\$?\d|per hour|/hr)|[$€£]\s?\d", I)
+PAY_SIGNAL = re.compile(r"\b(?:hiring|hire|budget|willing to pay|paid|pay(?:ing)?\s+\$?\d|per hour|/hr)\b|[$€£]\s?\d", I)
 
 JOB_ROLE_WORD = re.compile(r"\b(?:developer|engineer|programmer|architect|scientist|analyst|designer|writer|automation)\b", I)
 JOB_EXCLUDE = re.compile(
     r"\b(?:physician|licensed|medical|pharmac\w+|photograph\w+|attorney|lawyer|claims|trainer|annotator|evaluator|"
     r"rater|tutor|teacher|instructor|therapist|clinician|radiolog\w+)\b|"
     r"\b(customer success|account (?:executive|manager|development|director)|sales (?:manager|rep|director|executive)|"
-    r"recruit\w*|people operations|talent (?:acquisition|partner)|human resources|\bhr\b|payroll|legal counsel|"
+    r"recruit\w*|people operations|talent (?:acquisition|partner)|human resources|(?<![/\d$])\bhr\b|payroll|legal counsel|"
     r"accountant|nurse|driver|warehouse|technician|inside sales|business development|support specialist|"
     r"onboarding|solutions? consultant|implementation manager|account coordinator|office manager)\b", I)
 
@@ -659,6 +661,8 @@ def score_item(item: RawItem, now: datetime | None = None, cfg: dict | None = No
         if not head_cats:
             return None
 
+    buy_strong = 1
+    intent_reasons: list[str] = []
     if item.lead_type == "job":
         intent = "buyer"
         # A job is only a useful lead when the ROLE (title / first line) is a remote service we can sell.
@@ -669,45 +673,58 @@ def score_item(item: RawItem, now: datetime | None = None, cfg: dict | None = No
         if not role_cats:
             return None
         if role_cats == ["ai_ml"] and not JOB_ROLE_WORD.search(title):
-            return None        # "AI trainer", "AI risk manager"… not a build/write/design service
-        # Contract/freelance openings are better leads than full-time employment.
-        low = blob.lower()
-        pts = 30 if re.search(r"\b(freelanc\w+|contract(or)?|part[- ]?time|project[- ]based|gig|consult\w+)\b", low) else 16
-        reasons = ["job-opening"]
+            return None        # "AI trainer", "AI risk manager"... not a build/write/design service
         if not strong_cats:
             return None
     else:
-        intent, pts, reasons = classify_intent(title, text, item.force_intent)
-        if intent != "buyer":
+        intent, _pts, intent_reasons = classify_intent(title, text, item.force_intent)
+        if intent == "unknown":
             return None
+        if intent == "buyer":
+            m = re.search(r"buy:(\d+)", ",".join(intent_reasons))
+            buy_strong = int(m.group(1)) if m else 1
         if not strong_cats and item.force_intent != "buyer":
             return None
 
-    fresh, age_h = freshness_points(item.posted_at, now)
-    cat_pts = 12 if len(strong_cats) <= 1 else 16 if len(strong_cats) == 2 else 20
+    kind, kind_reasons, ev = classify_kind(item, title, text, buy_strong, intent, intent_reasons, cfg)
+    if kind == "role" and not cfg.get("keep_roles"):
+        return None
+    if kind not in ("gig", "role"):
+        return None
+    prof = cfg.get("profile") or {}
+    avoid = [a for a in (prof.get("avoid") or []) if a]
+    if avoid and re.search(r"\b(?:" + "|".join(re.escape(a) for a in avoid) + r")\b", blob, I):
+        return None            # explicitly not something you sell
+
+    details = extract_details(title, text, item.platform, item.author, now)
+    posted = item.posted_at
+    if posted is None and details.get("posted_date"):
+        posted = datetime.fromisoformat(details["posted_date"]).replace(tzinfo=timezone.utc)   # "posted November 3, 2026"
+    _fresh, age_h = freshness_points(posted, now)
     budget_text, budget_usd = extract_budget(blob)
     contacts = extract_contacts(blob + ("\n" + item.contact_hint if item.contact_hint else ""), item.author_url)
     if item.contact_hint and item.contact_hint not in contacts and item.contact_hint.startswith("http"):
         contacts.append(item.contact_hint)
-    budget_pts = 0
-    if budget_text:
-        budget_pts = 10 if (budget_usd or 0) >= 100 or budget_usd is None else 6
-    contact_pts = 5 if contacts else 2
-    owner_pts = 5 if OWNER_HINT.search(blob) else 0
-    urgent_pts = 3 if URGENT_HINT.search(blob) else 0
-    score = min(100, pts + cat_pts + fresh + budget_pts + contact_pts + owner_pts + urgent_pts)
-    if item.lead_type == "job":
-        score = min(score, 88)
-
+    title_cats = [c for c in detect_categories(title) if c not in WEAK_CATEGORIES]
+    language = detect_language(blob)
     country = detect_country(blob, item.location_hint)
+    score, comp, why = score_gig(item, ev, blob, strong_cats or cats, title_cats, budget_text, budget_usd, contacts,
+                                 age_h, language, country, cfg, kind)
+
     return {
-        "language": detect_language(blob),
+        "language": language,
         "categories": strong_cats or cats,
         "score": int(score),
+        "kind": kind,
+        "grade": grade(int(score)),
+        "components": comp,
+        "next_action": next_action(item, kind, contacts, int(score)),
         "budget_text": budget_text,
         "budget_usd": budget_usd,
         "contact": " | ".join(contacts),
         "country": country,
         "age_hours": age_h,
-        "reasons": reasons + ([f"owner"] if owner_pts else []) + (["urgent"] if urgent_pts else []),
+        "reasons": why,
+        "details": details,
+        "posted_at": posted,
     }

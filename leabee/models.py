@@ -21,3 +21,4 @@ class RawItem:
     location_hint: str = ""
     extra_tags: list = field(default_factory=list)
     contact_hint: str = ""
+    meta: dict = field(default_factory=dict)   # source-specific record (e.g. a Google Maps business)

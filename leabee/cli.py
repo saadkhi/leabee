@@ -65,6 +65,21 @@ def main(argv: list[str] | None = None) -> int:
     ar.add_argument("-n", "--limit", type=int, default=None)
     sub.add_parser("alert", help="send alerts for new hot leads (Telegram / Discord / email, see .env.example)")
     sub.add_parser("backup", help="copy the database to data/backups")
+    ev = sub.add_parser("eval", help="measure scoring accuracy against hand-labelled leads in data/eval/*.json")
+    ev.add_argument("files", nargs="*")
+    ev.add_argument("-t", "--threshold", type=int, default=60)
+    ev.add_argument("--no-errors", action="store_true")
+    dr = sub.add_parser("dump-raw", help="save raw collected items (before any filtering) to a JSONL file, for labelling and tuning")
+    dr.add_argument("-s", "--sources", default="hackernews,boards,mastodon,github,reddit")
+    dr.add_argument("-o", "--out", default="data/eval/raw.jsonl")
+    dr.add_argument("--partial", action="store_true")
+    sub.add_parser("tools", help="show which extractor tools (Crawl4AI, AgentQL, Browser Use, Skyvern, Stagehand...) are ready")
+    im = sub.add_parser("import-maps", help="import a Google Maps Extractor export (.csv/.json) as prospects")
+    im.add_argument("file")
+    es = sub.add_parser("enrich-sites", help="crawl company websites of top leads for emails, phones and socials")
+    es.add_argument("-n", "--limit", type=int, default=25)
+    es.add_argument("--min-score", type=int, default=50)
+    es.add_argument("--agents", action="store_true", help="allow AI browser agents as a last resort (needs keys)")
     sub.add_parser("migrate-to-remote", help="copy the local SQLite database into Neon (needs DATABASE_URL)")
     sub.add_parser("publish", help="snapshot, commit and push to GitHub so Vercel redeploys (private repos only)")
     sn = sub.add_parser("snapshot", help="write vercel_data/leads.sqlite (read-only copy for the Vercel deployment)")
@@ -144,6 +159,50 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "backup":
         from .jobs import backup_dir
         print("backup:", store.backup(backup_dir(cfg), int((cfg.get("backup", {}) or {}).get("keep", 14))))
+        return 0
+    if a.cmd == "tools":
+        from .extractors import status
+        for t in status():
+            print(f"{'ready ' if t['ready'] else 'off   '} {t['kind']:5} {t['name']:12} {t['how_to_enable']}")
+        return 0
+    if a.cmd == "import-maps":
+        from .pipeline import item_to_lead
+        from .prospects import read_export, record_to_item
+        n = kept = new = 0
+        for rec in read_export(a.file):
+            it = record_to_item(rec)
+            n += 1
+            lead = item_to_lead(it, cfg) if it else None
+            if lead:
+                kept += 1
+                new += store.upsert(lead)
+        print(f"read {n} businesses, kept {kept} prospects, {new} new")
+        return 0
+    if a.cmd == "enrich-sites":
+        from .pipeline import enrich_sites
+        print(enrich_sites(cfg, store, a.limit, a.min_score, a.agents, progress=print))
+        return 0
+    if a.cmd == "dump-raw":
+        import dataclasses
+        import json as _json
+        from .collectors import registry
+        from .http import Http
+        run_cfg = {**cfg, "_partial": a.partial}
+        http, n = Http(delay=float(cfg.get("request_delay", 1.5))), 0
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        with open(a.out, "w", encoding="utf-8") as f:
+            for name in [x.strip() for x in a.sources.split(",") if x.strip()]:
+                for it in registry()[name](run_cfg, http):
+                    d = dataclasses.asdict(it)
+                    d["posted_at"] = it.posted_at.isoformat() if it.posted_at else None
+                    f.write(_json.dumps(d, ensure_ascii=False) + "\n")
+                    n += 1
+                print(f"{name}: running total {n}", flush=True)
+        print(f"wrote {n} raw items to {a.out}")
+        return 0
+    if a.cmd == "eval":
+        from .evaluate import run as run_eval
+        print(run_eval(cfg, a.files or None, a.threshold, not a.no_errors))
         return 0
     if a.cmd == "migrate-to-remote":
         if not store.remote:

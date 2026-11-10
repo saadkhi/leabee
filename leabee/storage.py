@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 COLUMNS = ["id", "source", "platform", "lead_type", "title", "text", "url", "author", "author_url",
            "posted_at", "found_at", "categories", "country", "budget_text", "budget_usd", "contact",
            "score", "status", "notes", "enriched", "reasons", "language", "ai_verdict", "ai_summary",
-           "follow_up", "deal_value", "notified"]
+           "follow_up", "deal_value", "notified", "kind", "grade", "next_action", "components", "details"]
 
 # Written in the common subset of SQLite and Postgres; _pg_ddl() adapts the two type differences.
 SCHEMA = """
@@ -51,6 +51,11 @@ MIGRATIONS = {
     "follow_up": "TEXT DEFAULT ''",
     "deal_value": "REAL",
     "notified": "INTEGER NOT NULL DEFAULT 0",
+    "kind": "TEXT DEFAULT ''",
+    "grade": "TEXT DEFAULT ''",
+    "next_action": "TEXT DEFAULT ''",
+    "components": "TEXT DEFAULT ''",
+    "details": "TEXT DEFAULT ''",
 }
 _TABLES = ("leads", "runs", "saved_filters", "meta")
 
@@ -169,10 +174,13 @@ class Store:
             en = int(lead.get("enriched", 0))
             c.execute("""UPDATE leads SET title=?, text=?, categories=?, country=?, budget_text=?, budget_usd=?,
                          contact=?, score=?, reasons=?, language=COALESCE(?, language),
+                         kind=COALESCE(?, kind), grade=COALESCE(?, grade), next_action=COALESCE(?, next_action),
+                         components=COALESCE(?, components), details=COALESCE(?, details),
                          enriched=CASE WHEN enriched > ? THEN enriched ELSE ? END WHERE id=?""",
                       (lead["title"], lead["text"], lead["categories"], lead["country"], lead["budget_text"],
                        lead["budget_usd"], lead["contact"], lead["score"], lead.get("reasons", ""),
-                       lead.get("language"), en, en, lead["id"]))
+                       lead.get("language"), lead.get("kind"), lead.get("grade"), lead.get("next_action"),
+                       lead.get("components"), lead.get("details"), en, en, lead["id"]))
             return False
 
     def log_run(self, source: str, started: str, fetched: int, kept: int, new: int, error: str = "") -> None:
@@ -408,6 +416,12 @@ class Store:
     def unenriched(self, limit: int, min_score: int = 0) -> list[dict]:
         rows = self._many([("SELECT * FROM leads WHERE enriched=0 AND status='new' AND score>=? "
                             "AND source='tinyfish' ORDER BY score DESC LIMIT ?", (min_score, limit))])[0]
+        return [dict(r) for r in rows]
+
+    def for_site_enrichment(self, limit: int, min_score: int = 50) -> list[dict]:
+        """Top new leads that have a company website we have not crawled yet."""
+        rows = self._many([("SELECT * FROM leads WHERE status='new' AND score>=? AND details LIKE '%\"website\"%' "
+                            "AND details NOT LIKE '%\"site\"%' ORDER BY score DESC, id LIMIT ?", (min_score, limit))])[0]
         return [dict(r) for r in rows]
 
     def _is_crosspost(self, c, lead: dict) -> bool:

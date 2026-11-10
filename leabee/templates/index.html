@@ -59,7 +59,7 @@ dialog textarea{min-height:130px}
   <div class="row">
     <a class="nav" href="/board"><button>Board</button></a>
     <a class="nav" href="/insights"><button>Dashboard</button></a>
-    <button class="primary" id="collect" {% if readonly %}hidden{% endif %}>Collect new leads</button>
+    <button class="primary" id="collect" {% if readonly %}hidden{% endif %} title="{% if remote_collect %}Runs on GitHub Actions; takes a few minutes{% endif %}">Collect new leads</button>
     <a href="#" id="csv"><button>Export CSV</button></a>
   </div>
 </header>
@@ -209,7 +209,8 @@ $('savefilter').onclick=async()=>{const name=prompt('Name for this filter (e.g. 
 let t;F.concat(CB).forEach(k=>$(k).addEventListener(k==='q'?'input':'change',()=>{clearTimeout(t);t=setTimeout(load,k==='q'?250:0)}));
 $('collect').onclick=async()=>{
   $('collect').disabled=true;$('collect').textContent='Collecting…';
-  await fetch('/api/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const r=await fetch('/api/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  if(!r.ok&&r.status!==409){const j=await r.json().catch(()=>({}));alert(j.error||'Could not start collection');$('collect').disabled=false;$('collect').textContent='Collect new leads';return}
   poll();
 };
 async function poll(){

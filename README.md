@@ -67,32 +67,45 @@ per-lead status (new → contacted → replied → won/lost/ignored), notes and 
 * **Password**: set `LEABEE_PASSWORD` in `.env` to require HTTP Basic login (any username). Do this before exposing it online.
 * **Run anywhere**: `run.bat` on Windows, or `docker compose up -d` (data persists in `./data`).
 
-## Deploy on Vercel (free Hobby plan)
+## Run everything on the web, free (Vercel + Turso + GitHub Actions)
 
-Vercel functions can't run long collections, keep background threads or write to disk, so on Vercel Leabee is a
-**password-protected, read-only dashboard over a snapshot of your database**. Collection runs elsewhere (your PC or the
-free GitHub Actions workflow in `.github/workflows/refresh.yml`) and each new snapshot redeploys automatically.
-Vercel Hobby is for personal, non-commercial use; check their terms for yours.
+Your PC is not needed after setup, so you can wipe the project folder whenever you like.
 
-1. **Make the snapshot**: `python -m leabee snapshot` writes `vercel_data/leads.sqlite` (about 3 MB; ignored and low-score leads removed).
-2. **Push to a PRIVATE GitHub repo** (the snapshot contains lead data): `git add -f vercel_data/leads.sqlite && git commit -m snapshot && git push`.
-   `.env` and `data/` are git-ignored and never uploaded.
-3. **Import the repo in Vercel** (vercel.com/new). No build settings needed: `vercel.json` routes everything to `api/index.py`.
-4. **Set Environment Variables** in the Vercel project: `LEABEE_PASSWORD` (required, the site refuses to serve without it;
-   log in with any username). Optional: `LEABEE_YOUR_NAME` for reply drafts.
-5. **Automatic refresh (optional)**: in the GitHub repo add secrets `TINYFISH_API_KEY` (and optionally `ANTHROPIC_API_KEY`).
-   The workflow collects every 6 hours, commits a new snapshot and Vercel redeploys. Reddit is excluded there because it
-   often blocks datacenter IPs; run it locally with `python -m leabee collect -s reddit`, then re-snapshot and push.
+| Piece | Does | Free tier |
+|---|---|---|
+| **Turso** | the shared, persistent database (hosted SQLite) | yes |
+| **Vercel** | the dashboard: leads, board, dashboard, drafts, edits, the Collect button | Hobby (personal use) |
+| **GitHub Actions** | collects leads every 6 hours and when you press Collect; AI review and alerts run here too | yes |
 
-**Auto-commit to GitHub**: set `publish.enabled: true` in `config.yaml` and every collection (`collect`, the dashboard button,
-`watch`, `serve --auto-collect`) ends by snapshotting, committing only `vercel_data/leads.sqlite` and pushing it, so Vercel
-redeploys. Run it by hand with `python -m leabee publish`. **It refuses to push unless the GitHub repo is private** (checked
-on every run), and the Actions workflow is skipped on public repos. Make the repo private first (GitHub > Settings > Danger Zone).
+No lead data is ever committed to git, so the repository can stay **public**.
 
-CLI alternative: `npm i -g vercel`, then `vercel --prod` in this folder (the `.vercelignore` excludes secrets and local data).
+1. **Turso**: sign up at turso.tech, create a database, then copy its URL (`libsql://…turso.io`) and create an auth token.
+2. **Copy your existing leads** (do this before cleaning your folder): put `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in `.env`,
+   then run `python -m leabee migrate-to-remote`. It is safe to re-run. From then on every CLI command uses Turso too.
+3. **GitHub secrets** (repo → Settings → Secrets and variables → Actions): `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`,
+   `TINYFISH_API_KEY`; optional `ANTHROPIC_API_KEY` and the Telegram / Discord / SMTP alert settings from `.env.example`.
+4. **A GitHub token for the Collect button**: github.com → Settings → Developer settings → Fine-grained tokens → this repository only,
+   permission **Actions: Read and write**. This is `GITHUB_DISPATCH_TOKEN`.
+5. **Vercel**: import the repo at vercel.com/new and add these Environment Variables (Production), then deploy:
 
-Limits: edits (status, notes, follow-ups, board moves, saved filters) and the Collect button are disabled on Vercel and return
-a clear message; do that work locally, where everything is saved. For a fully editable hosted version, use Docker/a small VPS instead.
+   | Name | Value |
+   |---|---|
+   | `LEABEE_PASSWORD` | a strong password (required; any username) |
+   | `TURSO_DATABASE_URL` | from step 1 |
+   | `TURSO_AUTH_TOKEN` | from step 1 |
+   | `GITHUB_DISPATCH_TOKEN` | from step 4 |
+   | `GITHUB_REPO` | `owner/repo`, e.g. `saadkhi/leabee` |
+   | `LEABEE_YOUR_NAME` | optional, signs your reply drafts |
+
+6. Open the site, log in, press **Collect new leads** (or wait up to 6 hours). Open the Actions tab to watch the run.
+
+Notes: Reddit often blocks GitHub's servers; Leabee stops asking a blocked host after 3 refusals and still finds Reddit posts
+through TinyFish. Weekly cleanup is safe: nothing lives in the folder except code and `.env`; re-clone and re-create `.env` any time.
+Every request to Turso is one HTTP call (the dashboard stats are batched into a single call), so pages load in about a second.
+
+**Fallbacks**: without the Turso variables the Vercel app serves a read-only snapshot (`python -m leabee snapshot`, see
+`leabee/serverless.py`), and `python -m leabee publish` can commit that snapshot to a **private** repo. `python -m leabee backup`
+pulls a local copy of the Turso database.
 
 ## How leads are judged
 

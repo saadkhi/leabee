@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -58,14 +59,23 @@ def now_iso() -> str:
 
 
 class Store:
-    def __init__(self, path: str):
+    def __init__(self, path: str, conn=None):
+        """`path` is a SQLite file / ":memory:", or a libsql:// / https:// Turso URL (token from TURSO_AUTH_TOKEN).
+        `conn` injects a ready connection (used by tests)."""
         self.path = path
-        if path != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self.remote = conn is not None or path.startswith(("libsql://", "https://", "wss://"))
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(path, check_same_thread=False, timeout=60)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        if conn is not None:
+            self._conn = conn
+        elif self.remote:
+            from .turso import TursoConnection
+            self._conn = TursoConnection(path, os.environ.get("TURSO_AUTH_TOKEN", ""))
+        else:
+            if path != ":memory:":
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(path, check_same_thread=False, timeout=60)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
         have = {r[1] for r in self._conn.execute("PRAGMA table_info(leads)")}
         for col, ddl in MIGRATIONS.items():
@@ -84,6 +94,13 @@ class Store:
                 self._conn.rollback()
                 raise
 
+    def _many(self, stmts: list[tuple[str, list | tuple]]) -> list[list]:
+        """Run several read statements; one HTTP round trip on Turso, plain loop on local SQLite."""
+        with self._lock:
+            if self.remote:
+                return [c.fetchall() for c in self._conn.batch([(q, tuple(a)) for q, a in stmts])]
+            return [self._conn.execute(q, a).fetchall() for q, a in stmts]
+
     # ---------------------------------------------------------------- leads
     def upsert(self, lead: dict) -> bool:
         """Insert or refresh a lead. Returns True if it is new. Keeps user status/notes."""
@@ -98,9 +115,9 @@ class Store:
                 if self._is_crosspost(c, lead):
                     return False
                 cols = [k for k in COLUMNS if k in lead]
-                c.execute(f"INSERT INTO leads ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
-                          [lead[k] for k in cols])
-                return True
+                cur = c.execute(f"INSERT OR IGNORE INTO leads ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                                [lead[k] for k in cols])
+                return cur.rowcount > 0         # 0 = another writer inserted it first
             if row["enriched"] and not lead.get("enriched"):
                 # never overwrite richer enriched text with a snippet
                 return False
@@ -167,11 +184,10 @@ class Store:
                  "follow_up": "follow_up = '', follow_up ASC, score DESC"}.get(sort, "score DESC")
         sql_where = " AND ".join(where)
         with self._lock:
-            total = self._conn.execute(f"SELECT COUNT(*) FROM leads WHERE {sql_where}", args).fetchone()[0]
-            rows = self._conn.execute(
-                f"SELECT * FROM leads WHERE {sql_where} ORDER BY {order} LIMIT ? OFFSET ?",
-                args + [limit, offset]).fetchall()
-        return [dict(r) for r in rows], total
+            cnt, rows = self._many([(f"SELECT COUNT(*) FROM leads WHERE {sql_where}", args),
+                                    (f"SELECT * FROM leads WHERE {sql_where} ORDER BY {order} LIMIT ? OFFSET ?",
+                                     args + [limit, offset])])
+        return [dict(r) for r in rows], cnt[0][0]
 
     def get(self, lead_id: str) -> dict | None:
         with self._lock:
@@ -277,34 +293,37 @@ class Store:
     # ------------------------------------------------------------------ stats
     def stats(self) -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
-        with self._lock:
-            c = self._conn
-            live = "status != 'ignored'"
-            total = c.execute(f"SELECT COUNT(*) FROM leads WHERE {live}").fetchone()[0]
-            hot = c.execute(f"SELECT COUNT(*) FROM leads WHERE score>=70 AND {live}").fetchone()[0]
-            with_contact = c.execute(f"SELECT COUNT(*) FROM leads WHERE contact!='' AND {live}").fetchone()[0]
-            by_platform = c.execute(f"SELECT platform, COUNT(*) n FROM leads WHERE {live} GROUP BY platform ORDER BY n DESC").fetchall()
-            by_country = c.execute(f"SELECT CASE WHEN country='' THEN 'Unknown' ELSE country END k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC LIMIT 40").fetchall()
-            by_status = c.execute("SELECT status, COUNT(*) n FROM leads GROUP BY status").fetchall()
-            by_lang = c.execute(f"SELECT CASE WHEN language='' THEN 'Unknown' ELSE language END k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC").fetchall()
-            cat_rows = c.execute(f"SELECT categories, substr(COALESCE(posted_at, found_at),1,10) d FROM leads WHERE {live}").fetchall()
-            last = c.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 12").fetchall()
-            by_type = c.execute(f"SELECT lead_type k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC").fetchall()
-            buckets = c.execute(f"SELECT CASE WHEN score>=90 THEN '90-100' WHEN score>=80 THEN '80-89' WHEN score>=70 THEN '70-79' "
-                                f"WHEN score>=60 THEN '60-69' WHEN score>=50 THEN '50-59' ELSE '35-49' END k, COUNT(*) n "
-                                f"FROM leads WHERE {live} GROUP BY k").fetchall()
-            per_day = c.execute(f"SELECT substr(COALESCE(posted_at, found_at),1,10) k, COUNT(*) n FROM leads WHERE {live} "
-                                f"GROUP BY k ORDER BY k DESC LIMIT 30").fetchall()
-            budgets = sorted(r[0] for r in c.execute(f"SELECT budget_usd FROM leads WHERE budget_usd IS NOT NULL AND {live}"))
-            perf = c.execute("SELECT platform, COUNT(*) leads, ROUND(AVG(score),1) avg_score, "
-                             "SUM(status IN ('contacted','replied','won','lost')) worked, "
-                             "SUM(status='replied') replied, SUM(status='won') won, "
-                             "COALESCE(SUM(CASE WHEN status='won' THEN deal_value END),0) revenue "
-                             "FROM leads WHERE status!='ignored' GROUP BY platform ORDER BY leads DESC").fetchall()
-            revenue = c.execute("SELECT COALESCE(SUM(deal_value),0) FROM leads WHERE status='won'").fetchone()[0]
-            due = c.execute("SELECT COUNT(*) FROM leads WHERE follow_up!='' AND follow_up<=? AND status IN ('contacted','replied')",
-                            (today,)).fetchone()[0]
-            ai_n = c.execute(f"SELECT COUNT(*) FROM leads WHERE ai_verdict!='' AND {live}").fetchone()[0]
+        live = "status != 'ignored'"
+        (total, hot, with_contact, by_platform, by_country, by_status, by_lang, cat_rows, last, by_type, buckets,
+         per_day, budget_rows, perf, revenue, due, ai_n) = self._many([
+            (f"SELECT COUNT(*) FROM leads WHERE {live}", ()),
+            (f"SELECT COUNT(*) FROM leads WHERE score>=70 AND {live}", ()),
+            (f"SELECT COUNT(*) FROM leads WHERE contact!='' AND {live}", ()),
+            (f"SELECT platform, COUNT(*) n FROM leads WHERE {live} GROUP BY platform ORDER BY n DESC", ()),
+            (f"SELECT CASE WHEN country='' THEN 'Unknown' ELSE country END k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC LIMIT 40", ()),
+            ("SELECT status, COUNT(*) n FROM leads GROUP BY status", ()),
+            (f"SELECT CASE WHEN language='' THEN 'Unknown' ELSE language END k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC", ()),
+            (f"SELECT categories, substr(COALESCE(posted_at, found_at),1,10) d FROM leads WHERE {live}", ()),
+            ("SELECT * FROM runs ORDER BY id DESC LIMIT 12", ()),
+            (f"SELECT lead_type k, COUNT(*) n FROM leads WHERE {live} GROUP BY k ORDER BY n DESC", ()),
+            (f"SELECT CASE WHEN score>=90 THEN '90-100' WHEN score>=80 THEN '80-89' WHEN score>=70 THEN '70-79' "
+             f"WHEN score>=60 THEN '60-69' WHEN score>=50 THEN '50-59' ELSE '35-49' END k, COUNT(*) n "
+             f"FROM leads WHERE {live} GROUP BY k", ()),
+            (f"SELECT substr(COALESCE(posted_at, found_at),1,10) k, COUNT(*) n FROM leads WHERE {live} "
+             f"GROUP BY k ORDER BY k DESC LIMIT 30", ()),
+            (f"SELECT budget_usd FROM leads WHERE budget_usd IS NOT NULL AND {live}", ()),
+            ("SELECT platform, COUNT(*) leads, ROUND(AVG(score),1) avg_score, "
+             "SUM(status IN ('contacted','replied','won','lost')) worked, "
+             "SUM(status='replied') replied, SUM(status='won') won, "
+             "COALESCE(SUM(CASE WHEN status='won' THEN deal_value END),0) revenue "
+             "FROM leads WHERE status!='ignored' GROUP BY platform ORDER BY leads DESC", ()),
+            ("SELECT COALESCE(SUM(deal_value),0) FROM leads WHERE status='won'", ()),
+            ("SELECT COUNT(*) FROM leads WHERE follow_up!='' AND follow_up<=? AND status IN ('contacted','replied')", (today,)),
+            (f"SELECT COUNT(*) FROM leads WHERE ai_verdict!='' AND {live}", ()),
+        ])
+        total, hot, with_contact = total[0][0], hot[0][0], with_contact[0][0]
+        revenue, due, ai_n = revenue[0][0], due[0][0], ai_n[0][0]
+        budgets = sorted(r[0] for r in budget_rows)
         now_ts = datetime.now(timezone.utc).timestamp()
         mid = datetime.fromtimestamp(now_ts - 7 * 86400, timezone.utc).strftime("%Y-%m-%d")
         old = datetime.fromtimestamp(now_ts - 14 * 86400, timezone.utc).strftime("%Y-%m-%d")
@@ -366,19 +385,38 @@ class Store:
         with self._tx() as c:
             c.execute("DELETE FROM leads WHERE id=?", (lead_id,))
 
+    def _copy_to(self, dst: sqlite3.Connection) -> None:
+        """Copy the whole database into an open local SQLite connection (works for local files and Turso)."""
+        with self._lock:
+            if not self.remote:
+                self._conn.backup(dst)
+                return
+            dst.executescript(SCHEMA)
+            have = {r[1] for r in dst.execute("PRAGMA table_info(leads)")}
+            for col, ddl in MIGRATIONS.items():
+                if col not in have:
+                    dst.execute(f"ALTER TABLE leads ADD COLUMN {col} {ddl}")
+            for table in ("leads", "runs", "saved_filters", "meta"):
+                rows = self._conn.execute(f"SELECT * FROM {table}").fetchall()
+                if not rows:
+                    continue
+                cols = rows[0].keys()
+                dst.executemany(f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                                [tuple(r) for r in rows])
+            dst.commit()
+
     def backup(self, dest_dir: str, keep: int = 14) -> str | None:
-        """Consistent copy of the database (SQLite online backup). Prunes old copies."""
+        """Consistent local copy of the database. Prunes old copies."""
         if self.path == ":memory:":
             return None
         d = Path(dest_dir)
         d.mkdir(parents=True, exist_ok=True)
         out = d / f"leads-{datetime.now():%Y%m%d-%H%M%S}.db"
-        with self._lock:
-            dst = sqlite3.connect(str(out))
-            try:
-                self._conn.backup(dst)
-            finally:
-                dst.close()
+        dst = sqlite3.connect(str(out))
+        try:
+            self._copy_to(dst)
+        finally:
+            dst.close()
         for old in sorted(d.glob("leads-*.db"))[:-keep]:
             old.unlink(missing_ok=True)
         return str(out)
@@ -399,3 +437,34 @@ class Store:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+
+def open_store(cfg: dict, local: bool = False) -> Store:
+    """Turso when TURSO_DATABASE_URL is set (shared, persistent), otherwise the local SQLite file."""
+    url = os.environ.get("TURSO_DATABASE_URL", "").strip()
+    if url and not local:
+        return Store(url)
+    return Store(cfg["database"])
+
+
+def migrate(src: Store, dst: Store, batch_size: int = 40) -> dict:
+    """Copy every table from one store to another (e.g. local SQLite -> Turso). Safe to re-run."""
+    counts = {}
+    for table in ("leads", "saved_filters", "meta", "runs"):
+        rows = src._many([(f"SELECT * FROM {table}", ())])[0]
+        counts[table] = len(rows)
+        if not rows:
+            continue
+        cols = rows[0].keys()
+        if table == "runs":
+            cols = [c for c in cols if c != "id"]
+        sql = f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})"
+        for i in range(0, len(rows), batch_size):
+            chunk = [(sql, tuple(r[c] for c in cols)) for r in rows[i:i + batch_size]]
+            if dst.remote:
+                dst._conn.batch(chunk)
+            else:
+                with dst._tx() as c:
+                    for q, a in chunk:
+                        c.execute(q, a)
+    return counts

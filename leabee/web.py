@@ -15,7 +15,7 @@ from .pipeline import ALL_SOURCES
 from .storage import STATUSES, Store
 
 
-def create_app(cfg: dict, store: Store, readonly: bool = False) -> Flask:
+def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: bool = False) -> Flask:
     app = Flask(__name__, template_folder="templates")
     state = {"running": False, "log": [], "started": None}
     lock = threading.Lock()
@@ -51,7 +51,8 @@ def create_app(cfg: dict, store: Store, readonly: bool = False) -> Flask:
     @app.get("/")
     def index():
         return render_template("index.html", categories=sorted(CATEGORY_PATTERNS), statuses=STATUSES,
-                               sources=ALL_SOURCES, hot=cfg.get("hot_score", 70), readonly=readonly)
+                               sources=ALL_SOURCES, hot=cfg.get("hot_score", 70), readonly=readonly,
+                               remote_collect=remote_collect)
 
     @app.get("/insights")
     def insights():
@@ -146,6 +147,12 @@ def create_app(cfg: dict, store: Store, readonly: bool = False) -> Flask:
     def collect():
         body = request.get_json(silent=True) or {}
         sources = [s for s in body.get("sources", ALL_SOURCES) if s in ALL_SOURCES] or ALL_SOURCES
+        if remote_collect:
+            from . import remote_collect as rc
+            if rc.status()["running"]:
+                return jsonify(error="a collection is already running"), 409
+            ok, msg = rc.dispatch(sources, partial=bool(body.get("partial", True)), enrich=bool(body.get("enrich", True)))
+            return (jsonify(ok=True, message=msg), 202) if ok else (jsonify(error=msg), 503)
         with lock:
             if state["running"]:
                 return jsonify(error="a collection is already running"), 409
@@ -155,6 +162,9 @@ def create_app(cfg: dict, store: Store, readonly: bool = False) -> Flask:
 
     @app.get("/api/collect/status")
     def collect_status():
+        if remote_collect:
+            from . import remote_collect as rc
+            return jsonify(rc.status())
         with lock:
             return jsonify(running=state["running"], log=list(state["log"]), started=state["started"])
 

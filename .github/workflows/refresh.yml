@@ -1,11 +1,11 @@
 name: Collect leads
 
-# Collects leads into your Turso database. Runs every 6 hours, and when you press "Collect new leads"
+# Collects leads into your Neon (Postgres) database. Runs every 6 hours, and when you press "Collect new leads"
 # on the Vercel dashboard (which calls this workflow). No lead data is ever committed to the repo,
 # so the repository can stay public.
 #
 # Repository secrets (Settings > Secrets and variables > Actions):
-#   TURSO_DATABASE_URL, TURSO_AUTH_TOKEN   required
+#   DATABASE_URL                           required: your Neon connection string
 #   TINYFISH_API_KEY                       required for the TinyFish source
 #   ANTHROPIC_API_KEY                      optional: AI review of borderline leads
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DISCORD_WEBHOOK_URL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD,
@@ -39,8 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,8 +65,8 @@ jobs:
 
       - name: Check database connection
         run: |
-          if [ -z "$TURSO_DATABASE_URL" ] || [ -z "$TURSO_AUTH_TOKEN" ]; then
-            echo "::error::Add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN as repository secrets."; exit 1
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Add DATABASE_URL (your Neon connection string) as a repository secret."; exit 1
           fi
           python -m leabee stats | head -1
 

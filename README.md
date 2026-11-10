@@ -67,45 +67,49 @@ per-lead status (new → contacted → replied → won/lost/ignored), notes and 
 * **Password**: set `LEABEE_PASSWORD` in `.env` to require HTTP Basic login (any username). Do this before exposing it online.
 * **Run anywhere**: `run.bat` on Windows, or `docker compose up -d` (data persists in `./data`).
 
-## Run everything on the web, free (Vercel + Turso + GitHub Actions)
+## Run everything on the web, free (Vercel + Neon + GitHub Actions)
 
 Your PC is not needed after setup, so you can wipe the project folder whenever you like.
 
 | Piece | Does | Free tier |
 |---|---|---|
-| **Turso** | the shared, persistent database (hosted SQLite) | yes |
+| **Neon** | the shared, persistent Postgres database | yes |
 | **Vercel** | the dashboard: leads, board, dashboard, drafts, edits, the Collect button | Hobby (personal use) |
 | **GitHub Actions** | collects leads every 6 hours and when you press Collect; AI review and alerts run here too | yes |
 
 No lead data is ever committed to git, so the repository can stay **public**.
+Every secret lives in **GitHub Actions secrets** or **Vercel environment variables**; nothing sensitive is in the repo.
 
-1. **Turso**: sign up at turso.tech, create a database, then copy its URL (`libsql://…turso.io`) and create an auth token.
-2. **Copy your existing leads** (do this before cleaning your folder): put `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in `.env`,
-   then run `python -m leabee migrate-to-remote`. It is safe to re-run. From then on every CLI command uses Turso too.
-3. **GitHub secrets** (repo → Settings → Secrets and variables → Actions): `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`,
-   `TINYFISH_API_KEY`; optional `ANTHROPIC_API_KEY` and the Telegram / Discord / SMTP alert settings from `.env.example`.
-4. **A GitHub token for the Collect button**: github.com → Settings → Developer settings → Fine-grained tokens → this repository only,
-   permission **Actions: Read and write**. This is `GITHUB_DISPATCH_TOKEN`.
-5. **Vercel**: import the repo at vercel.com/new and add these Environment Variables (Production), then deploy:
+**Copy your existing leads first** (before cleaning your folder): put your Neon connection string in a local `.env` as
+`DATABASE_URL=...`, then run `python -m leabee migrate-to-remote`. It is safe to re-run. After that every CLI command uses Neon.
 
-   | Name | Value |
-   |---|---|
-   | `LEABEE_PASSWORD` | a strong password (required; any username) |
-   | `TURSO_DATABASE_URL` | from step 1 |
-   | `TURSO_AUTH_TOKEN` | from step 1 |
-   | `GITHUB_DISPATCH_TOKEN` | from step 4 |
-   | `GITHUB_REPO` | `owner/repo`, e.g. `saadkhi/leabee` |
-   | `LEABEE_YOUR_NAME` | optional, signs your reply drafts |
+### Where each variable goes
 
-6. Open the site, log in, press **Collect new leads** (or wait up to 6 hours). Open the Actions tab to watch the run.
+| Variable | Vercel env var | GitHub Actions secret | Notes |
+|---|:-:|:-:|---|
+| `DATABASE_URL` | yes | yes | Neon connection string. On Vercel use the **pooled** one (host has `-pooler`); either works on GitHub |
+| `LEABEE_PASSWORD` | **yes (required)** | | Dashboard login (any username). The site refuses to serve without it |
+| `GITHUB_DISPATCH_TOKEN` | yes | | Fine-grained token for this repo, permission **Actions: Read and write**; powers the Collect button |
+| `GITHUB_REPO` | yes | | `owner/repo`, e.g. `saadkhi/leabee` |
+| `LEABEE_YOUR_NAME` | optional | | Signs your reply drafts |
+| `TINYFISH_API_KEY` | | **yes** | TinyFish search and fetch |
+| `ANTHROPIC_API_KEY` | | optional | AI review of borderline leads |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DISCORD_WEBHOOK_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_TO` | | optional | Alerts for new hot leads (any one channel is enough) |
+
+`GITHUB_TOKEN` (for the GitHub issues source) is provided to Actions automatically. Add secrets under repo → Settings →
+Secrets and variables → Actions; add env vars under the Vercel project → Settings → Environment Variables, then redeploy.
+
+### Deploy
+1. Import the repo at vercel.com/new (no build settings; `vercel.json` routes everything to `api/index.py`), add the Vercel variables, deploy.
+2. Open the site, log in, press **Collect new leads** (or wait up to 6 hours). The Actions tab shows the run.
 
 Notes: Reddit often blocks GitHub's servers; Leabee stops asking a blocked host after 3 refusals and still finds Reddit posts
-through TinyFish. Weekly cleanup is safe: nothing lives in the folder except code and `.env`; re-clone and re-create `.env` any time.
-Every request to Turso is one HTTP call (the dashboard stats are batched into a single call), so pages load in about a second.
+through TinyFish. Tables are created automatically on first connect (an advisory lock keeps simultaneous cold starts safe).
+Match regions for speed: Neon in `us-east` pairs with Vercel's default region. The dashboard makes about 20 small queries per load.
 
-**Fallbacks**: without the Turso variables the Vercel app serves a read-only snapshot (`python -m leabee snapshot`, see
+**Fallbacks**: without `DATABASE_URL` the Vercel app serves a read-only snapshot (`python -m leabee snapshot`, see
 `leabee/serverless.py`), and `python -m leabee publish` can commit that snapshot to a **private** repo. `python -m leabee backup`
-pulls a local copy of the Turso database.
+pulls a local SQLite copy of the Neon database.
 
 ## How leads are judged
 
@@ -129,3 +133,6 @@ unsubscribe line if you email, and follow GDPR/CAN-SPAM/CASL. Don't mass-DM; Red
 pip install -r requirements-dev.txt
 python -m pytest -q
 ```
+
+The Postgres tests are skipped unless `LEABEE_TEST_PG` points at a **throwaway** Postgres (tables are dropped), for example
+a local PGlite/Docker instance: `LEABEE_TEST_PG=postgresql://postgres:postgres@127.0.0.1:5544/postgres?sslmode=disable`.

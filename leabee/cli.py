@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     ar.add_argument("-n", "--limit", type=int, default=None)
     sub.add_parser("alert", help="send alerts for new hot leads (Telegram / Discord / email, see .env.example)")
     sub.add_parser("backup", help="copy the database to data/backups")
-    sub.add_parser("migrate-to-remote", help="copy the local SQLite database into Turso (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN)")
+    sub.add_parser("migrate-to-remote", help="copy the local SQLite database into Neon (needs DATABASE_URL)")
     sub.add_parser("publish", help="snapshot, commit and push to GitHub so Vercel redeploys (private repos only)")
     sn = sub.add_parser("snapshot", help="write vercel_data/leads.sqlite (read-only copy for the Vercel deployment)")
     sn.add_argument("--min-score", type=int, default=0)
@@ -147,12 +147,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "migrate-to-remote":
         if not store.remote:
-            print("Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in .env first.", file=sys.stderr)
+            print("Set DATABASE_URL (your Neon connection string) in .env first.", file=sys.stderr)
             return 2
         local = Store(cfg["database"])
-        print("copying", cfg["database"], "->", store.path)
+        print("copying", cfg["database"], "->", store.where)
         res = migrate(local, store)
-        print("done:", res, "| leads now in Turso:", store.stats()["total"])
+        print("done:", res, "| leads now in Neon:", store.stats()["total"])
         return 0
     if a.cmd == "publish":
         from .jobs import publish_snapshot

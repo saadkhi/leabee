@@ -169,4 +169,5 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             return jsonify(running=state["running"], log=list(state["log"]), started=state["started"])
 
     app.config["state_say"] = _say
+    app.config["store"] = store
     return app

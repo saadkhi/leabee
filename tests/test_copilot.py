@@ -17,7 +17,8 @@ def _lead(i, score=70, **kw):
 
 
 def test_tools_search_details_draft_status_summary(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("LEABEE_LLM_BASE_URL", raising=False)
     s = Store(":memory:")
     s.upsert(_lead("a", 90, grade="A")); s.upsert(_lead("b", 55, grade="C")); s.upsert(_lead("c", 30, grade="D", title="low one"))
     r = tools.search_leads(s, category="automation", min_grade="B")
@@ -38,7 +39,7 @@ def test_policies_keep_the_copilot_safe_and_every_tool_is_covered():
     text = " ".join(c for _, c, _ in spec.POLICIES).lower()
     assert "never claim a message was sent" in text and "explicit yes" in text and "never invent" in text
     used = {t for _, _, names in spec.POLICIES for t in names}
-    assert used == {"search_leads", "lead_details", "draft_reply", "set_lead_status", "pipeline_summary"}
+    assert used == {"search_leads", "lead_details", "draft_reply", "set_lead_status", "pipeline_summary", "find_businesses"}
 
 
 def test_client_flow_and_errors(monkeypatch):

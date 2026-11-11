@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--auto-collect", type=float, default=None, metavar="MIN",
                    help="also collect in the background every MIN minutes (0 = off; default from config schedule)")
 
-    ar = sub.add_parser("ai-review", help="AI second opinion on borderline leads (needs ANTHROPIC_API_KEY)")
+    ar = sub.add_parser("ai-review", help="AI second opinion on borderline leads (needs a free OpenRouter key or local Ollama)")
     ar.add_argument("-n", "--limit", type=int, default=None)
     sub.add_parser("alert", help="send alerts for new hot leads (Telegram / Discord / email, see .env.example)")
     sub.add_parser("backup", help="copy the database to data/backups")
@@ -77,10 +77,15 @@ def main(argv: list[str] | None = None) -> int:
     es2.add_argument("raw", nargs="+")
     es2.add_argument("-x", "--exclude", nargs="*", default=[])
     es2.add_argument("-o", "--out", default="data/eval/labeled_new.json")
-    sub.add_parser("copilot", help="run the Parlant sales copilot server (needs parlant[anthropic] and ANTHROPIC_API_KEY)")
+    fd = sub.add_parser("find", help='find real businesses for a prompt, e.g. find "plumbers in north carolina" (free, OpenStreetMap)')
+    fd.add_argument("request")
+    fd.add_argument("-n", type=int, default=None)
+    fd.add_argument("--save", action="store_true", help="save the results as prospects in your pipeline")
+    fd.add_argument("--csv", default="", help="also write the results to this CSV file")
+    sub.add_parser("copilot", help="run the Parlant sales copilot server (needs parlant and OPENROUTER_API_KEY)")
     sub.add_parser("bot", help="run the Telegram bot (buttons on alerts, /top /stats /due)")
     sub.add_parser("digest", help="send the daily digest to your alert channels")
-    sub.add_parser("tools", help="show which extractor tools (Crawl4AI, AgentQL, Browser Use, Skyvern, Stagehand...) are ready")
+    sub.add_parser("tools", help="show which extractor tools (Crawl4AI, Browser Use...) and the LLM are ready")
     im = sub.add_parser("import-maps", help="import a Google Maps Extractor export (.csv/.json) as prospects")
     im.add_argument("file")
     es = sub.add_parser("enrich-sites", help="crawl company websites of top leads for emails, phones and socials")
@@ -171,6 +176,32 @@ def main(argv: list[str] | None = None) -> int:
         from .evaluate import sample_blind
         for line in sample_blind(cfg, a.raw, a.exclude, a.out):
             print(line)
+        return 0
+    if a.cmd == "find":
+        from .discovery import find_businesses, save_to_pipeline
+        res = find_businesses(a.request, a.n, cfg, store=store)
+        if res.get("error"):
+            print(res["error"], file=sys.stderr)
+            return 1
+        for i, b in enumerate(res["businesses"], 1):
+            v = b.get("verified", {})
+            print(f"{i:>2}. {b['name']} ({b.get('city') or '-'})")
+            print(f"    phone: {b.get('phone') or '-'} | website: {b.get('website') or '-'}"
+                  f"{' (reachable)' if v.get('website') else ''} | email: {b.get('email') or '-'}")
+            print(f"    {b.get('address') or ''}  {b['source']}")
+        print()
+        print(res["stats"])
+        for note in res["notes"]:
+            print("note:", note)
+        if a.csv:
+            import csv as _csv
+            with open(a.csv, "w", newline="", encoding="utf-8-sig") as f:
+                w = _csv.DictWriter(f, fieldnames=["name", "trade", "phone", "email", "website", "address", "city", "state", "hours", "source"], extrasaction="ignore")
+                w.writeheader()
+                w.writerows(res["businesses"])
+            print("wrote", a.csv)
+        if a.save:
+            print(save_to_pipeline(store, cfg, res["businesses"]))
         return 0
     if a.cmd == "copilot":
         from .copilot.agent import run as run_copilot

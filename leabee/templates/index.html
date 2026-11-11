@@ -60,6 +60,7 @@ dialog textarea{min-height:130px}
   <h1>🐝 Leabee Leads</h1>
   <div class="stats" id="stats"></div>
   <div class="row">
+    <button id="findbtn" class="primary">Find businesses</button>
     <button id="copilotbtn">Copilot</button>
     <a class="nav" href="/board"><button>Board</button></a>
     <a class="nav" href="/insights"><button>Dashboard</button></a>
@@ -99,6 +100,13 @@ dialog textarea{min-height:130px}
   <button id="selclear">Clear</button>
 </div>
 
+<dialog id="fnd" style="max-width:820px">
+  <h3 style="margin:0 0 8px">Find businesses <span style="font-weight:400;color:var(--mute);font-size:12px">free: OpenStreetMap + their own websites. Nothing is guessed.</span></h3>
+  <div class="row"><input id="fq" placeholder="plumbers in North Carolina" style="flex:1"><input id="fn" type="number" min="1" max="50" value="12" style="width:70px"><button id="fgo" class="primary">Search</button><button id="fclose">Close</button></div>
+  <div id="fstat" style="color:var(--mute);font-size:12px;margin:8px 0"></div>
+  <div id="fres" style="max-height:55vh;overflow:auto"></div>
+  <div class="row" style="margin-top:8px"><button id="fsave" hidden>Save all to my pipeline</button><a id="fcsv" href="#" hidden><button>Download CSV</button></a></div>
+</dialog>
 <dialog id="cop">
   <h3 style="margin:0 0 8px">Copilot <span style="font-weight:400;color:var(--mute);font-size:12px">ask about your leads, drafts and follow-ups; it never sends anything</span></h3>
   <div id="copmsgs" style="max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
@@ -218,6 +226,25 @@ async function openDraft(id){
 }
 $('dcopy').onclick=async()=>{try{await navigator.clipboard.writeText($('dtext').value);$('dcopy').textContent='Copied ✓'}catch{$('dtext').select()}setTimeout(()=>$('dcopy').textContent='Copy',1500)};
 $('dclose').onclick=()=>$('dlg').close();
+// ---- find businesses (free OpenStreetMap)
+let found=[];
+$('findbtn').onclick=()=>{$('fnd').showModal();$('fq').focus()};
+$('fclose').onclick=()=>$('fnd').close();
+function frow(b,i){const v=b.verified||{};const ok=(x)=>x===true?' ✓':x===false?' ⚠':'';
+  return `<div class="lead" style="margin:6px 0"><b>${i+1}. ${esc(b.name)}</b> <span class="meta" style="display:inline">${esc(b.city||'')}</span>
+  <div class="meta"><span>☎ ${esc(b.phone||'not found')}</span><span>🌐 ${b.website?`<a href="${esc(safeUrl(b.website))}" target="_blank" rel="noopener noreferrer">${esc(b.website)}</a>${ok(v.website)}`:'not found'}</span><span>✉ ${esc(b.email||'not found')}${ok(v.email_domain)}${v.email_matches_website===false?' (different domain)':''}</span></div>
+  <div class="meta"><span>${esc(b.address||'address not found')}</span>${b.hours?`<span>🕒 ${esc(b.hours)}</span>`:''}<a href="${esc(safeUrl(b.source))}" target="_blank" rel="noopener noreferrer">source</a></div></div>`}
+async function fsearch(save){const q=$('fq').value.trim();if(!q)return;$('fgo').disabled=true;$('fstat').textContent='Searching OpenStreetMap and checking websites… (a city takes about a minute, a whole state 2-3 minutes; repeats are instant)';$('fres').innerHTML='';
+  try{const r=await fetch('/api/discover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q,n:Number($('fn').value)||12,save:!!save})});const j=await r.json();
+    if(!r.ok){$('fstat').textContent=j.error||'Search failed';$('fgo').disabled=false;return}
+    found=j.businesses;$('fres').innerHTML=found.map(frow).join('');const st=j.stats;
+    $('fstat').textContent=`${st.returned} shown of ${st.found_on_map} mapped · phone ${st.with_phone} · website ${st.with_website} · email ${st.with_email} · fully complete ${st.fully_complete}. `+j.notes.join(' ')+(j.saved?` Saved ${j.saved.saved} to your pipeline.`:'');
+    $('fsave').hidden=false;$('fcsv').hidden=false;
+    const rows=[['name','phone','email','website','address']].concat(found.map(b=>[b.name,b.phone,b.email,b.website,b.address]));
+    $('fcsv').href='data:text/csv;charset=utf-8,'+encodeURIComponent('\ufeff'+rows.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\r\n'));$('fcsv').download='businesses.csv'}
+  catch(e){$('fstat').textContent='Could not reach the server.'}$('fgo').disabled=false}
+$('fgo').onclick=()=>fsearch(false);$('fq').addEventListener('keydown',e=>{if(e.key==='Enter')fsearch(false)});
+$('fsave').onclick=async()=>{await fsearch(true);loadStats();load()};
 // ---- copilot (Parlant)
 let copSession='';
 function copAdd(who,text){const d=document.createElement('div');d.style.cssText='white-space:pre-wrap;padding:8px 10px;border-radius:8px;background:'+(who==='you'?'var(--bg)':'var(--card)')+';border:1px solid var(--line)';d.textContent=(who==='you'?'You: ':'Copilot: ')+text;$('copmsgs').appendChild(d);d.scrollIntoView()}

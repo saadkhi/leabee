@@ -1,14 +1,13 @@
 """Reply drafts. You review and send manually; nothing is ever sent automatically.
 
-With ANTHROPIC_API_KEY set, drafts are written by Claude from the lead's own words, details and your `profile:`
+With an LLM configured (OPENROUTER_API_KEY free models, or local Ollama), drafts are written from the lead's own words, details and your `profile:`
 (name, pitch, portfolio link, rate). Without a key (or on any error) the category templates below are used."""
 from __future__ import annotations
 
 import json
 import os
-import re
 
-import requests
+from . import llm
 
 CATEGORY_PITCH = {
     "web_development": "build and launch websites and web apps quickly",
@@ -25,8 +24,6 @@ CATEGORY_PITCH = {
     "devops_cloud": "set up and maintain cloud infrastructure and CI/CD",
     "game_dev": "build games and interactive experiences",
 }
-API = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-5-5"
 
 
 def _name(cfg: dict | None = None) -> str:
@@ -62,9 +59,8 @@ def template_draft(lead: dict, cfg: dict | None = None) -> dict:
     return {"short": short, "long": long, "follow_up": follow, "source": "template"}
 
 
-def ai_draft(lead: dict, cfg: dict | None = None, key: str = "", timeout: float = 60) -> dict | None:
-    key = key or os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not key:
+def ai_draft(lead: dict, cfg: dict | None = None) -> dict | None:
+    if not llm.available():
         return None
     prof = (cfg or {}).get("profile") or {}
     try:
@@ -80,16 +76,7 @@ def ai_draft(lead: dict, cfg: dict | None = None, key: str = "", timeout: float 
         f"pitch={prof.get('pitch', '')}; portfolio={prof.get('portfolio_url', '')}; rate={prof.get('rate', '')}\n"
         f"LEAD ({lead.get('kind', 'gig')}, {lead.get('platform')}): title={lead.get('title')}\nDETAILS: {json.dumps(details, ensure_ascii=False)[:600]}\n"
         f"POST: {(lead.get('text') or '')[:1800]}")
-    try:
-        r = requests.post(API, timeout=timeout, headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                          json={"model": os.environ.get("LEABEE_AGENT_MODEL", MODEL), "max_tokens": 900, "messages": [{"role": "user", "content": prompt}]})
-        if r.status_code != 200:
-            return None
-        text = "".join(b.get("text", "") for b in r.json().get("content", []))
-        m = re.search(r"\{.*\}", text, re.S)
-        d = json.loads(m.group(0)) if m else None
-    except (requests.RequestException, ValueError):
-        return None
+    d = llm.complete_json(prompt, max_tokens=900)
     if not isinstance(d, dict) or not all(isinstance(d.get(k), str) and d[k].strip() for k in ("short", "long", "follow_up")):
         return None
     return {"short": d["short"].strip(), "long": d["long"].strip(), "follow_up": d["follow_up"].strip(), "source": "ai"}

@@ -160,7 +160,7 @@ def enrich_sites(cfg: dict, store: Store, limit: int = 25, min_score: int = 50, 
     """Crawl the company website of top leads (home + contact pages) for verified emails, phones and social links.
 
     Uses plain HTTP first, then Crawl4AI (a real browser) for JavaScript sites, and only then, if enabled and keyed,
-    an AI agent (AgentQL / Stagehand / Browser Use / Skyvern). Updates the lead's contact, re-scores it (direct contact
+    the Browser Use agent. Updates the lead's contact, re-scores it (direct contact
     raises Reach) and stores what was found under details.site."""
     from .extractors import enrich_site
     from .textutil import parse_dt

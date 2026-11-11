@@ -97,6 +97,20 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
         res = ask(msg, str(body.get("session_id", "")))
         return jsonify(res), (503 if res.get("error") else 200)
 
+    @app.post("/api/discover")
+    def discover():
+        from .discovery import find_businesses, save_to_pipeline
+        body = request.get_json(silent=True) or {}
+        q = str(body.get("query", "")).strip()
+        if not q:
+            return jsonify(error="query required"), 400
+        res = find_businesses(q, int(body["n"]) if str(body.get("n", "")).isdigit() else None, cfg, store=store)
+        if res.get("error"):
+            return jsonify(res), 422
+        if body.get("save") and not readonly:
+            res["saved"] = save_to_pipeline(store, cfg, res["businesses"])
+        return jsonify(res)
+
     @app.get("/api/tools")
     def tools():
         from .extractors import status

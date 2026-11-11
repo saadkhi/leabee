@@ -56,7 +56,7 @@ per-lead status (new → contacted → replied → won/lost/ignored), notes and 
 * **Dashboard** (`/insights`): categories, types, score bands, platforms, countries, languages, 7-day category trends,
   platform performance (worked / replied / won / win rate / revenue), follow-ups due and recent runs. Every bar links to the filtered list.
 * **Better country detection**: besides named places it uses currency (₹, £, PKR…), email/site domain, phone code, timezone and language.
-* **AI second opinion** (optional): `python -m leabee ai-review`, needs `ANTHROPIC_API_KEY`. Borderline leads (score 35–75) get a
+* **AI second opinion** (optional): `python -m leabee ai-review`, uses the free LLM setup below. Borderline leads (score 35–75) get a
   buyer / maybe / reject verdict and a one-line summary; rejects are hidden, confirmed buyers get +5.
 * **Alerts**: new leads scoring 80+ are pushed to Telegram, Discord or email (see `.env.example`); `python -m leabee alert`
   or automatically after each collection. The first run only baselines existing leads.
@@ -93,7 +93,7 @@ Every secret lives in **GitHub Actions secrets** or **Vercel environment variabl
 | `GITHUB_REPO` | yes | | `owner/repo`, e.g. `saadkhi/leabee` |
 | `LEABEE_YOUR_NAME` | optional | | Signs your reply drafts |
 | `TINYFISH_API_KEY` | | **yes** | TinyFish search and fetch |
-| `ANTHROPIC_API_KEY` | | optional | AI review of borderline leads |
+| `OPENROUTER_API_KEY` | | optional (free) | AI review and AI-written replies on free OpenRouter models |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DISCORD_WEBHOOK_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_TO` | | optional | Alerts for new hot leads (any one channel is enough) |
 
 `GITHUB_TOKEN` (for the GitHub issues source) is provided to Actions automatically. Add secrets under repo → Settings →
@@ -147,12 +147,11 @@ Treat 65-80% as the realistic precision on unseen raw feeds at grade C; grade B 
 
 ## Extractors and tools (maximum detail, cheapest first)
 
-`python -m leabee tools` shows what is ready. Order: plain HTTP, then **Crawl4AI** (free local browser; set `LEABEE_BROWSER_CHANNEL=msedge` or
-`chrome` to reuse the browser you already have), then TinyFish Fetch, then AI browser agents as a last resort (opt-in with `extractors.use_agents`):
-**AgentQL** (`AGENTQL_API_KEY`), **Browser Use** (`pip install 'browser-use==1.0.0'` + `ANTHROPIC_API_KEY`), **Skyvern** (`pip install skyvern` +
-`SKYVERN_API_KEY`), **Stagehand** (`pip install stagehand` + `ANTHROPIC_API_KEY`). The four agent adapters follow each project's documented API and are
-unit-tested with fake SDKs; they have not been run live without your keys. Agents never log in, submit forms or send messages. Every fetched URL passes an
-SSRF guard (public http(s) addresses only).
+`python -m leabee tools` shows what is ready. Order: plain HTTP, then **Crawl4AI** (open source; free local browser; set `LEABEE_BROWSER_CHANNEL=msedge` or
+`chrome` to reuse the browser you already have), then TinyFish Fetch (optional, free tier), then **Browser Use** (open source, MIT) as a last resort,
+opt-in with `extractors.use_agents`, driven by a free LLM (below). The Browser Use adapter follows its documented API and is unit-tested with a fake SDK;
+it was not run live. AgentQL, Skyvern and Stagehand were removed because they need paid or hosted API keys. Agents never log in, submit forms or send
+messages. Every fetched URL passes an SSRF guard (public http(s) addresses only).
 `python -m leabee enrich-sites` crawls the company website of top leads for verified emails, phones and socials (also runs inside every collection).
 
 ## Google Maps prospects
@@ -163,16 +162,46 @@ exports into `data/maps/` (or `python -m leabee import-maps FILE`). Businesses a
 listing), **Fit** (category), **Value** (reviews), **Reach** (email/phone), **Signal**. If your app's API input fields differ, set `gmaps.task_template`.
 Note: scraping Google Maps is against Google's terms and cold outreach is regulated (GDPR, CAN-SPAM, CASL); keep volumes modest and outreach relevant.
 
+## Free stack (no paid services)
+
+| Need | Free / open-source choice | Key |
+|---|---|---|
+| LLM (reply drafts, AI review, chat) | **OpenRouter free models** (`:free`) or fully local **Ollama** | `OPENROUTER_API_KEY` (free account) or none for Ollama |
+| Businesses for a prompt | **OpenStreetMap** (Nominatim + Overpass) and **Overture Maps** (open dataset, read with PyArrow) | none |
+| Websites, emails, phones | plain HTTP + **Crawl4AI** | none |
+| Chat agent | **Parlant** (open source) on OpenRouter | `OPENROUTER_API_KEY` |
+| Database / hosting / jobs | Neon free, Vercel Hobby, GitHub Actions | free accounts |
+| Lead sources | Reddit, Hacker News, job boards, Mastodon, GitHub, UK tenders; TinyFish and the omkar Maps app are optional (free tiers) | optional |
+
+LLM setup, pick one. OpenRouter: create a free account, set `OPENROUTER_API_KEY` (free models such as `meta-llama/llama-3.3-70b-instruct:free`; override
+with `LEABEE_LLM_MODEL`, a comma list tried in order). Local and offline: install Ollama, `ollama pull llama3.2`, then set
+`LEABEE_LLM_BASE_URL=http://localhost:11434/v1` and `LEABEE_LLM_MODEL=llama3.2`. Without any LLM everything still works with rules and templates.
+
+## Find real businesses from a prompt ("plumbers in North Carolina")
+
+`python -m leabee find "provide me the details of plumbers in north carolina" -n 12 --csv out.csv [--save]`, the **Find businesses** button in the dashboard,
+`POST /api/discover`, or just ask the Copilot. How it works: the place is looked up on Nominatim; **OpenStreetMap** and **Overture Maps** are searched in
+parallel; duplicates are merged across sources; each business's own website is crawled for email, phone and socials; then every field is checked (website
+reachable, email domain exists, email domain matches the site) and the most complete 10-15 are returned with their source. Nothing is invented: a missing
+field is shown as "not found", and the answer says how many businesses were found and how complete they are. Results are cached for a week.
+
+Measured live: *12 electricians in Raleigh, NC* gave 12 of 12 with phone, reachable website and email (about 80 s); *plumbers in North Carolina* gave 12 of 12
+from 368 mapped (about 2 min). Real limits: coverage of open map data varies by trade and area (OpenStreetMap alone had only 2 electricians in Raleigh;
+Overture added 110), many small businesses publish no email, and public map servers are shared, so keep usage modest. Searches take 1-3 minutes, so run
+them locally or on a small server, not inside Vercel's 30-second functions (cached results are instant everywhere). `pip install pyarrow` is needed for
+Overture (`requirements-extras.txt`). Data licences: (c) OpenStreetMap contributors (ODbL), (c) Overture Maps Foundation (CDLA Permissive 2.0 / ODbL).
+Cold outreach is regulated (GDPR, CAN-SPAM, CASL): keep it relevant and honour opt-outs.
+
 ## Replies, alerts, digest, copilot
 
-* **AI-written replies**: with `ANTHROPIC_API_KEY`, the Draft button writes from the lead's own words and your `profile:` (name, pitch, portfolio_url, rate);
+* **AI-written replies**: with a free LLM configured, the Draft button writes from the lead's own words and your `profile:` (name, pitch, portfolio_url, rate);
   otherwise templates. Prospects get a pitch about their specific gap. Nothing is ever sent automatically.
 * **Telegram**: new hot leads arrive one per message with Draft / Contacted / Ignore buttons. Run `python -m leabee bot` to make the buttons work
   (and `/top`, `/stats`, `/due`); only your `TELEGRAM_CHAT_ID` is answered.
 * **Digest**: `python -m leabee digest` (daily workflow in `.github/workflows/digest.yml`) sends top new leads and due follow-ups to your alert channels.
 * **Tenders**: UK Contracts Finder (free, no key) for IT, software, marketing and design tenders.
-* **Copilot (Parlant)**: `pip install "parlant[anthropic]"`, then `python -m leabee copilot` starts a Parlant agent (port 8800) with explicit policies
-  (drafts only, confirm before status changes, stay in scope, no invented data). The dashboard's Copilot button talks to it. It needs `ANTHROPIC_API_KEY` and
+* **Copilot (Parlant)**: `pip install parlant`, then `python -m leabee copilot` starts a Parlant agent (port 8800) with explicit policies
+  (drafts only, confirm before status changes, stay in scope, no invented data). The dashboard's Copilot button talks to it. It uses the free LLM setup below and
   was not run live here; its tool functions and policies are unit-tested.
 
 Tune everything in `config.yaml` (subreddits, queries, languages, `profile`, `min_score`, `max_age_days`).

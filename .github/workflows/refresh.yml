@@ -7,7 +7,7 @@ name: Collect leads
 # Repository secrets (Settings > Secrets and variables > Actions):
 #   DATABASE_URL                           required: your Neon connection string
 #   TINYFISH_API_KEY                       required for the TinyFish source
-#   ANTHROPIC_API_KEY                      optional: AI review of borderline leads
+#   OPENROUTER_API_KEY                      optional (free key): AI review of borderline leads
 #   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DISCORD_WEBHOOK_URL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD,
 #   ALERT_EMAIL_TO                         optional: alerts for new hot leads
 # GITHUB_TOKEN (for the GitHub issues source) is provided automatically.
@@ -41,7 +41,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

@@ -1,4 +1,4 @@
-"""Run the Parlant server with the Leabee copilot: `python -m leabee copilot` (needs parlant[anthropic] + ANTHROPIC_API_KEY).
+"""Run the Parlant server with the Leabee copilot: `python -m leabee copilot` (needs parlant + OPENROUTER_API_KEY, free models work).
 
 Written against the Parlant 4.x SDK documented in its README (p.Server, create_agent, create_policy, @p.tool, p.ToolResult).
 Not run live here (it needs an LLM key); the tool functions and the policies are unit-tested separately."""
@@ -16,7 +16,7 @@ async def serve(port: int = 8800) -> None:
     try:
         import parlant.sdk as p
     except ImportError as e:
-        raise SystemExit('Install the copilot dependency first:  pip install "parlant[anthropic]"') from e
+        raise SystemExit('Install the copilot dependency first:  pip install parlant') from e
 
     cfg = load_config()
     store = open_store(cfg)
@@ -42,13 +42,18 @@ async def serve(port: int = 8800) -> None:
         return p.ToolResult(data=T.set_lead_status(store, lead_id, status, follow_up_days))
 
     @p.tool
+    async def find_businesses(request: str, count: int = 12, save: bool = False) -> p.ToolResult:
+        """Find real businesses for a request such as 'plumbers in North Carolina' (free OpenStreetMap data plus their websites). save=True stores them as prospects."""
+        return p.ToolResult(data=await asyncio.to_thread(T.find_businesses, store, cfg, request, count, save))
+
+    @p.tool
     async def pipeline_summary() -> p.ToolResult:
         """Counts, statuses, top categories and follow-ups that are due."""
         return p.ToolResult(data=T.pipeline_summary(store))
 
     registry = {"search_leads": search_leads, "lead_details": lead_details, "draft_reply": draft_reply,
-                "set_lead_status": set_lead_status, "pipeline_summary": pipeline_summary}
-    async with p.Server(port=port, models={"*": "anthropic"}) as server:
+                "set_lead_status": set_lead_status, "pipeline_summary": pipeline_summary, "find_businesses": find_businesses}
+    async with p.Server(port=port, models={"*": "openrouter"}) as server:
         agent = await server.create_agent(id=AGENT_ID, name=NAME, instructions=INSTRUCTIONS)
         for title, content, tool_names in POLICIES:
             await agent.create_policy(title=title, content=content, tools=[registry[n] for n in tool_names])

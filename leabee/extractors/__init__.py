@@ -1,12 +1,12 @@
-"""Page extractors, cheapest first:  plain HTTP -> Crawl4AI (browser, free) -> TinyFish Fetch -> AI agents (AgentQL, Browser Use,
-Skyvern, Stagehand; need keys). `enrich_site()` uses them to turn a company website into verified contact details."""
+"""Page extractors, cheapest first:  plain HTTP -> Crawl4AI (browser, free) -> TinyFish Fetch -> AI agent (Browser Use
+Browser Use + a free LLM). `enrich_site()` uses them to turn a company website into verified contact details."""
 from __future__ import annotations
 
 import logging
 import os
 from urllib.parse import urlsplit
 
-from .agents import CONTACT_FIELDS, AgentQLBackend, BrowserUseBackend, SkyvernBackend, StagehandBackend
+from .agents import CONTACT_FIELDS, BrowserUseBackend
 from .base import CONTACT_HINT, GENERIC_LOCALS, PageResult, email_domain_resolves, find_emails, find_phones, is_public_url
 from .crawl4ai_backend import Crawl4AIBackend
 from .plain import PlainBackend
@@ -36,9 +36,9 @@ class TinyFishFetchBackend:
 
 
 PAGE_BACKENDS = {"plain": PlainBackend, "crawl4ai": Crawl4AIBackend, "tinyfish": TinyFishFetchBackend}
-AGENT_BACKENDS = {"agentql": AgentQLBackend, "browser_use": BrowserUseBackend, "skyvern": SkyvernBackend, "stagehand": StagehandBackend}
+AGENT_BACKENDS = {"browser_use": BrowserUseBackend}
 DEFAULT_PAGE_ORDER = ("plain", "crawl4ai", "tinyfish")
-DEFAULT_AGENT_ORDER = ("agentql", "stagehand", "browser_use", "skyvern")
+DEFAULT_AGENT_ORDER = ("browser_use",)
 
 
 def status() -> list[dict]:

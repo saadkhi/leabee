@@ -1,5 +1,5 @@
 requests>=2.31
-PyYAML>=6.0
+PyYAML>=6.0.3
 Flask>=3.0
 psycopg[binary]>=3.2
 waitress>=3.0

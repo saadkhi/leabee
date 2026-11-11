@@ -140,8 +140,8 @@ def same_origin(request) -> bool:
 
 
 def csp(nonce: str) -> str:
-    return ("default-src 'none'; script-src 'self' 'nonce-%s'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
-            "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'" % nonce)
+    return ("default-src 'none'; script-src 'self' 'nonce-%s'; style-src 'self' 'nonce-%s'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+            "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'" % (nonce, nonce))
 
 
 # ------------------------------------------------------------------------------------------------ untrusted text (prompt injection)

@@ -166,6 +166,7 @@ def test_web_new_endpoints(monkeypatch):
 
 def test_password_protection(monkeypatch):
     monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
+    monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")
     c = create_app(CFG, Store(":memory:")).test_client()
     assert c.get("/api/stats").status_code == 401
     import base64

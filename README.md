@@ -214,6 +214,17 @@ Read **SECURITY.md** (threat table, checklist, limits). Short version: set a str
 blocks cross-site writes, locks out repeated bad logins, rate-limits expensive actions, validates every input, hardens all outbound fetching
 against SSRF, redacts secrets from logs, and fences scraped text before it reaches an LLM.
 
+Stronger login (all optional, all free):
+
+```bash
+python -m leabee hash-password     # LEABEE_PASSWORD_HASH instead of a plain password
+python -m leabee totp-setup        # LEABEE_TOTP_SECRET: authenticator-app 2FA
+python -m leabee gen-data-key      # LEABEE_DATA_KEY: encrypt notes and backups
+python -m leabee audit-log         # who logged in, failed, exported, searched
+```
+
+Login is a form with a signed session cookie and CSRF token. Scripts that need HTTP Basic auth must set `LEABEE_ALLOW_BASIC=1`.
+
 ## Responsible use
 
 Only public data is used. Respect each site's terms, reply on the platform where the person asked, include an

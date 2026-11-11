@@ -1,0 +1,7 @@
+<meta name="csrf-token" content="{{ csrf_token }}">
+<script nonce="{{ csp_nonce }}">
+// Every write request carries the session's CSRF token (a page from another site cannot read it).
+(function(){var m=document.querySelector('meta[name="csrf-token"]');var t=m?m.content:'';var f=window.fetch;
+window.fetch=function(u,o){o=o||{};var meth=(o.method||'GET').toUpperCase();
+if(t&&meth!=='GET'&&meth!=='HEAD'){o.headers=Object.assign({},o.headers||{},{'X-CSRF-Token':t})}return f.call(this,u,o)}})();
+</script>

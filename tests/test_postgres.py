@@ -88,6 +88,7 @@ def test_database_url_precedence_and_masking(monkeypatch):
 
 def test_vercel_message_does_not_leak_connection_string(monkeypatch):
     monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
+    monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:topsecret@127.0.0.1:1/db?connect_timeout=2")
     r = serverless.build_app().test_client().get("/", headers=AUTH)
     assert r.status_code == 503 and b"DATABASE_URL" in r.data and b"topsecret" not in r.data
@@ -210,6 +211,7 @@ def test_web_app_and_vercel_full_mode_on_postgres(pg, monkeypatch):
     s.upsert(_lead("1", 90))
     s.close()
     monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
+    monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")
     monkeypatch.setenv("DATABASE_URL", PG_URL)
     app = serverless.build_app()
     c = app.test_client()

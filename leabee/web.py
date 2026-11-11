@@ -1,13 +1,16 @@
 """Flask dashboard + JSON API, hardened: auth with lockout, CSRF/origin checks, host allowlist, rate limits, CSP with nonce, strict validation."""
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import secrets
 import threading
 from datetime import datetime
 
-from flask import Flask, Response, g, jsonify, render_template, request
+from flask import Flask, Response, g, jsonify, redirect, render_template, request
 
+from . import auth
 from . import security as sec
 from .classify import CATEGORY_PATTERNS
 from .jobs import run_cycle
@@ -16,6 +19,8 @@ from .pipeline import ALL_SOURCES
 from .storage import STATUSES, Store
 
 WRITE_METHODS = ("POST", "PATCH", "PUT", "DELETE")
+OPEN_PATHS = ("/login", "/logout")                           # reachable without a session
+LOGIN_LIMIT, LOGIN_WINDOW, GLOBAL_LOGIN_LIMIT = 8, 900, 60
 
 
 def _loads(v):
@@ -37,6 +42,22 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     plain_pw, hashed_pw = sec.configured_secret()
     password_set = bool(plain_pw or hashed_pw)
     hosts = sec.allowed_hosts(password_set)
+    totp = auth.totp_secret()
+    allow_basic = os.environ.get("LEABEE_ALLOW_BASIC") == "1" and not totp      # Basic auth: scripts only, never with 2FA
+    key = auth.signing_key(plain_pw, hashed_pw, totp) if password_set else b""
+
+    def audit(event: str, detail: str = ""):
+        try:
+            store.log_event(event, sec.client_ip(request), detail)
+        except Exception:      # noqa: BLE001  (logging must never break a request)
+            pass
+
+    def locked(ip: str) -> bool:
+        """Lockout counted in the database, so it holds across serverless instances."""
+        try:
+            return store.count_events("login_fail", LOGIN_WINDOW, ip) >= LOGIN_LIMIT or store.count_events("login_fail", 3600) >= GLOBAL_LOGIN_LIMIT
+        except Exception:      # noqa: BLE001
+            return limiter.count(f"fail:{ip}", LOGIN_WINDOW) >= LOGIN_LIMIT
 
     def deny(msg: str, code: int, **headers):
         r = jsonify(error=msg) if request.path.startswith("/api/") else Response(msg, code, mimetype="text/plain")
@@ -52,22 +73,33 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
         ip = sec.client_ip(request)
         if not sec.host_ok(request.host, hosts):
             return deny("Host not allowed", 400)
-        if password_set:                                           # authentication, with brute-force lockout
-            if limiter.count(f"fail:{ip}", sec.LOGIN_FAILS[1]) >= sec.LOGIN_FAILS[0]:
-                return deny("Too many failed logins. Try again later.", 429, Retry_After=sec.LOGIN_FAILS[1])
-            a = request.authorization
-            if not (a and sec.verify_password(a.password or "", plain_pw, hashed_pw)):
-                if a:                                                              # a browser's first request has no credentials yet
+        g.authed, g.csrf = not password_set, ""
+        if password_set:
+            cookie = request.cookies.get(auth.COOKIE_SECURE) or request.cookies.get(auth.COOKIE)
+            sess = auth.read_session(key, cookie or "", request.headers.get("User-Agent", ""))
+            if sess:
+                g.authed, g.csrf = True, sess["csrf"]
+            elif allow_basic and request.authorization:                          # optional, for scripts; counts toward lockout
+                if locked(ip):
+                    return deny("Too many failed logins. Try again later.", 429, Retry_After=LOGIN_WINDOW)
+                if sec.verify_password(request.authorization.password or "", plain_pw, hashed_pw):
+                    g.authed = True
+                else:
                     limiter.add(f"fail:{ip}")
-                return Response("Login required", 401, {"WWW-Authenticate": 'Basic realm="Leabee"'})
-            limiter.reset(f"fail:{ip}")
-        if readonly and request.method in WRITE_METHODS:
+                    audit("login_fail", "basic")
+            if not g.authed and request.path not in OPEN_PATHS:
+                if request.path.startswith("/api/") or request.path == "/export.csv":
+                    return deny("Authentication required", 401, **({"WWW_Authenticate": 'Basic realm="Leabee"'} if allow_basic else {}))
+                return redirect("/login")
+        if readonly and request.method in WRITE_METHODS and request.path not in OPEN_PATHS:
             return deny("Read-only deployment: edit leads locally, then run `leabee snapshot` and redeploy.", 403)
         if request.method in WRITE_METHODS:                         # CSRF: Basic auth is sent by the browser automatically
             if not sec.same_origin(request):
                 return deny("Cross-site request blocked", 403)
             if request.method in ("POST", "PATCH", "PUT") and request.content_length and not request.is_json:
                 return deny("Content-Type must be application/json", 415)
+            if g.csrf and request.path not in OPEN_PATHS and not hmac.compare_digest(request.headers.get("X-CSRF-Token", ""), g.csrf):
+                return deny("Missing or invalid CSRF token", 403)           # a page we served has the token; another site cannot read it
         ok, wait = limiter.allow(f"all:{ip}", *sec.GENERAL_LIMIT)
         if not ok:
             return deny("Too many requests", 429, Retry_After=wait)
@@ -99,8 +131,8 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
         return resp
 
     @app.context_processor
-    def _nonce():
-        return {"csp_nonce": getattr(g, "csp_nonce", "")}
+    def _ctx():
+        return {"csp_nonce": getattr(g, "csp_nonce", ""), "csrf_token": getattr(g, "csrf", ""), "auth_enabled": password_set}
 
     for code, msg in ((400, "Bad request"), (404, "Not found"), (405, "Method not allowed"), (413, "Request too large"), (500, "Something went wrong")):
         app.register_error_handler(code, lambda e, code=code, msg=msg: deny(msg, code))      # never leak stack traces or internals
@@ -121,6 +153,50 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             language=text("language", 10), ai=text("ai", 10), follow_due=a.get("follow_due") == "1",
             grade=text("grade", 1), kind=text("kind", 20),
         )
+
+    # ---------------------------------------------------------------- login / logout
+    def _cookie_name():
+        return auth.COOKIE_SECURE if (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https") else auth.COOKIE
+
+    @app.get("/login")
+    def login_page():
+        if not password_set or g.authed:
+            return redirect("/")
+        return render_template("login.html", totp_required=bool(totp))
+
+    @app.post("/login")
+    def login():
+        if not password_set:
+            return jsonify(ok=True)
+        ip = sec.client_ip(request)
+        if locked(ip):
+            audit("lockout", "login blocked")
+            return deny("Too many failed logins. Try again later.", 429, Retry_After=LOGIN_WINDOW)
+        b = body()
+        ok = sec.verify_password(str(b.get("password", ""))[:200], plain_pw, hashed_pw)
+        if ok and totp:
+            ok, step = auth.verify_totp(totp, str(b.get("code", ""))[:12], int(store.get_meta("totp_last", "0") or 0))
+            if ok:
+                store.set_meta("totp_last", str(step))                 # each code works once (replay protection)
+        if not ok:
+            limiter.add(f"fail:{ip}")
+            store.log_event("login_fail", ip, "form")
+            return jsonify(error="Invalid credentials"), 401           # never say which factor was wrong
+        value, _csrf = auth.make_session(key, request.headers.get("User-Agent", ""))
+        resp = jsonify(ok=True)
+        resp.set_cookie(_cookie_name(), value, max_age=auth.SESSION_TTL, httponly=True, samesite="Strict", path="/",
+                        secure=_cookie_name() == auth.COOKIE_SECURE)
+        audit("login_ok")
+        return resp
+
+    @app.post("/logout")
+    def logout():
+        audit("logout")
+        resp = jsonify(ok=True)
+        for name in (auth.COOKIE, auth.COOKIE_SECURE):
+            resp.delete_cookie(name, path="/")
+        resp.headers["Clear-Site-Data"] = '"cache", "cookies"'
+        return resp
 
     # ---------------------------------------------------------------- pages
     @app.get("/")
@@ -174,6 +250,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             return jsonify(error="Another search is running. Try again in a moment."), 429
         try:
             n = int(b["n"]) if str(b.get("n", "")).isdigit() else None
+            audit("discover", q[:80])
             res = find_businesses(q, max(1, min(n, 50)) if n else None, cfg, store=store)
             if res.get("error"):
                 return jsonify(res), 422
@@ -222,6 +299,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             n = store.bulk_status(ids, b.get("status", "") if isinstance(b.get("status"), str) else "")
         except ValueError as e:
             return jsonify(error=str(e)), 400
+        audit("bulk_status", f"{n} leads -> {b.get('status')}")
         return jsonify(ok=True, updated=n)
 
     @app.get("/api/filters")
@@ -246,6 +324,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     def export():
         ids = [i[:128] for i in request.args.get("ids", "").split(",") if i][:5000] if "ids" in request.args else None
         rows, _ = store.query(limit=100_000, ids=ids, **_filters())
+        audit("export", f"{len(rows)} rows")
         return Response("\ufeff" + store.to_csv(rows), mimetype="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f"attachment; filename=leads-{datetime.now():%Y%m%d-%H%M}.csv"})
 
@@ -267,6 +346,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
         wanted = b.get("sources", ALL_SOURCES)
         sources = [s for s in wanted if s in ALL_SOURCES] if isinstance(wanted, list) else []
         sources = sources or ALL_SOURCES
+        audit("collect", ",".join(sources))
         if remote_collect:
             from . import remote_collect as rc
             if rc.status()["running"]:

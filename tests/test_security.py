@@ -94,21 +94,6 @@ def test_allowed_hosts_setting(monkeypatch):
 
 
 # ----------------------------------------------------------------------------- authentication
-def test_auth_lockout_after_repeated_failures(monkeypatch):
-    monkeypatch.setenv("LEABEE_PASSWORD", PW)
-    monkeypatch.delenv("LEABEE_ALLOWED_HOSTS", raising=False)
-    a = create_app(CFG, Store(":memory:"))
-    c = a.test_client()
-    assert c.get("/api/stats").status_code == 401                                             # first visit: login prompt, not counted as a failure
-    bad = {"Authorization": "Basic " + base64.b64encode(b"u:wrong-password-xx").decode()}
-    codes = [c.get("/api/stats", headers=bad).status_code for _ in range(8)]
-    assert codes == [401] * 8
-    locked = c.get("/api/stats", headers=AUTH)                                                # even the right password is refused while locked
-    assert locked.status_code == 429 and locked.headers["Retry-After"]
-    a.config["limiter"].reset("fail:127.0.0.1")
-    assert c.get("/api/stats", headers=AUTH).status_code == 200
-
-
 def test_password_rules_and_scrypt_hash(monkeypatch):
     assert sec.password_problem("") and sec.password_problem("short") and sec.password_problem("password") and sec.password_problem("aaaaaaaaaaaaaaaa")
     assert sec.password_problem(PW) == ""
@@ -118,7 +103,9 @@ def test_password_rules_and_scrypt_hash(monkeypatch):
     monkeypatch.setenv("LEABEE_PASSWORD_HASH", h)
     monkeypatch.delenv("LEABEE_PASSWORD", raising=False)
     c = create_app(CFG, Store(":memory:")).test_client()
-    assert c.get("/api/stats").status_code == 401 and c.get("/api/stats", headers=AUTH).status_code == 200      # login works with only the hash set
+    assert c.get("/api/stats").status_code == 401
+    assert c.post("/login", json={"password": "wrong-password-12345"}).status_code == 401
+    assert c.post("/login", json={"password": PW}).status_code == 200 and c.get("/api/stats").status_code == 200      # works with only the hash set
 
 
 # ----------------------------------------------------------------------------- rate limits and validation

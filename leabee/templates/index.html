@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leabee Leads</title>
-<style>
+{% include "_csrf.html" %}
+<style nonce="{{ csp_nonce }}">
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--mute:#667085;--line:#e4e7ec;--acc:#2f6fed;--hot:#e5484d;--ok:#12a150;--warn:#d9822b}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--line:#262b36;--acc:#6b9bff;--hot:#ff6b6f;--ok:#3ecf8e;--warn:#f0a050}}
 *{box-sizing:border-box}
@@ -61,6 +62,7 @@ dialog textarea{min-height:130px}
   <div class="stats" id="stats"></div>
   <div class="row">
     <button id="findbtn" class="primary">Find businesses</button>
+    {% if auth_enabled %}<button id="logout">Log out</button>{% endif %}
     <button id="copilotbtn">Copilot</button>
     <a class="nav" href="/board"><button>Board</button></a>
     <a class="nav" href="/insights"><button>Dashboard</button></a>
@@ -227,6 +229,7 @@ async function openDraft(id){
 }
 $('dcopy').onclick=async()=>{try{await navigator.clipboard.writeText($('dtext').value);$('dcopy').textContent='Copied ✓'}catch{$('dtext').select()}setTimeout(()=>$('dcopy').textContent='Copy',1500)};
 $('dclose').onclick=()=>$('dlg').close();
+const lo=document.getElementById('logout');if(lo)lo.onclick=async()=>{await fetch('/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});location.href='/login'};
 // ---- find businesses (free OpenStreetMap)
 let found=[];
 const csafe=c=>{c=String(c||'');return /^[=+\-@\t\r]/.test(c)?"'"+c:c};

@@ -4,6 +4,7 @@ import csv
 import io
 import os
 import re
+import secrets
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -11,7 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .security import csv_safe
+from . import crypto
+from .security import csv_safe, redact
 
 COLUMNS = ["id", "source", "platform", "lead_type", "title", "text", "url", "author", "author_url",
            "posted_at", "found_at", "categories", "country", "budget_text", "budget_usd", "contact",
@@ -43,6 +45,10 @@ CREATE TABLE IF NOT EXISTS saved_filters (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, query TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, ip TEXT DEFAULT '', event TEXT NOT NULL, detail TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
 """
 
 # Columns added after the first release; added to existing databases on open.
@@ -59,7 +65,7 @@ MIGRATIONS = {
     "components": "TEXT DEFAULT ''",
     "details": "TEXT DEFAULT ''",
 }
-_TABLES = ("leads", "runs", "saved_filters", "meta")
+_TABLES = ("leads", "runs", "saved_filters", "meta", "audit_log")
 
 STATUSES = ("new", "contacted", "replied", "won", "lost", "ignored")
 MAX_BUDGET_USD = 2_000_000          # anything above is almost certainly a parsing accident
@@ -124,7 +130,7 @@ class Store:
             return
         rows = self._conn.execute(
             "SELECT table_name, column_name FROM information_schema.columns "
-            "WHERE table_schema = current_schema() AND table_name IN ('leads','runs','saved_filters','meta')").fetchall()
+            "WHERE table_schema = current_schema() AND table_name IN ('leads','runs','saved_filters','meta','audit_log')").fetchall()
         tables: dict[str, set] = {}
         for r in rows:
             tables.setdefault(r[0], set()).add(r[1])
@@ -249,16 +255,22 @@ class Store:
         cnt, rows = self._many([(f"SELECT COUNT(*) FROM leads WHERE {sql_where}", args),
                                 (f"SELECT * FROM leads WHERE {sql_where} ORDER BY {order} LIMIT ? OFFSET ?",
                                  args + [limit, offset])])
-        return [dict(r) for r in rows], cnt[0][0]
+        return [self._dec(dict(r)) for r in rows], cnt[0][0]
 
     def get(self, lead_id: str) -> dict | None:
         with self._lock:
             r = self._conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
-        return dict(r) if r else None
+        return self._dec(dict(r)) if r else None
+
+    @staticmethod
+    def _dec(row: dict) -> dict:
+        if row.get("notes"):
+            row["notes"] = crypto.decrypt(row["notes"])
+        return row
 
     def find_by_prefix(self, prefix: str) -> dict | None:
         rows = self._many([("SELECT * FROM leads WHERE id LIKE ? LIMIT 2", (prefix.replace("%", "") + "%",))])[0]
-        return dict(rows[0]) if len(rows) == 1 else None
+        return self._dec(dict(rows[0])) if len(rows) == 1 else None
 
     def update_user_fields(self, lead_id: str, status: str | None = None, notes: str | None = None,
                            follow_up: str | None = None, deal_value: float | None | str = "unset") -> bool:
@@ -279,7 +291,7 @@ class Store:
             if status is not None:
                 c.execute("UPDATE leads SET status=? WHERE id=?", (status, lead_id))
             if notes is not None:
-                c.execute("UPDATE leads SET notes=? WHERE id=?", (notes[:5000], lead_id))
+                c.execute("UPDATE leads SET notes=? WHERE id=?", (crypto.encrypt(notes[:5000]), lead_id))
             if follow_up is not None:
                 c.execute("UPDATE leads SET follow_up=? WHERE id=?", (follow_up, lead_id))
             if deal_value != "unset":
@@ -353,6 +365,31 @@ class Store:
     def delete_filter(self, fid: int) -> None:
         with self._tx() as c:
             c.execute("DELETE FROM saved_filters WHERE id=?", (fid,))
+
+    # ------------------------------------------------------------ security log
+    def log_event(self, event: str, ip: str = "", detail: str = "") -> None:
+        """Append-only record of security-relevant actions (logins, lockouts, exports, searches...). Secrets are redacted; kept 90 days."""
+        with self._tx() as c:
+            c.execute("INSERT INTO audit_log(ts, ip, event, detail) VALUES (?,?,?,?)", (now_iso(), ip[:64], event[:40], redact(detail)[:300]))
+            if secrets.randbelow(50) == 0:                       # prune old rows occasionally, not on every write
+                cutoff = (datetime.now(timezone.utc).timestamp() - 90 * 86400)
+                c.execute("DELETE FROM audit_log WHERE ts < ?", (datetime.fromtimestamp(cutoff, timezone.utc).isoformat(timespec="seconds"),))
+
+    def events(self, limit: int = 100, event: str = "") -> list[dict]:
+        sql, args = "SELECT ts, ip, event, detail FROM audit_log", []
+        if event:
+            sql += " WHERE event = ?"
+            args.append(event)
+        rows = self._many([(sql + " ORDER BY id DESC LIMIT ?", args + [max(1, min(int(limit), 1000))])])[0]
+        return [dict(r) for r in rows]
+
+    def count_events(self, event: str, since_s: float, ip: str = "") -> int:
+        cutoff = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - since_s, timezone.utc).isoformat(timespec="seconds")
+        sql, args = "SELECT COUNT(*) FROM audit_log WHERE event = ? AND ts >= ?", [event, cutoff]
+        if ip:
+            sql += " AND ip = ?"
+            args.append(ip)
+        return self._many([(sql, args)])[0][0][0]
 
     # ------------------------------------------------------------------ stats
     def stats(self) -> dict:
@@ -487,9 +524,16 @@ class Store:
             self._copy_to(dst)
         finally:
             dst.close()
-        for old in sorted(d.glob("leads-*.db"))[:-keep]:
+        final = str(out)
+        if crypto.enabled():                                    # backups hold every lead: encrypt them when a data key is set
+            final = crypto.encrypt_file(out)
+        for old in sorted(list(d.glob("leads-*.db")) + list(d.glob("leads-*.db.enc")))[:-keep]:
             old.unlink(missing_ok=True)
-        return str(out)
+        try:
+            os.chmod(final, 0o600)                              # owner-only on POSIX (no-op semantics on Windows)
+        except OSError:
+            pass
+        return final
 
     def to_csv(self, rows: list[dict]) -> str:
         buf = io.StringIO()

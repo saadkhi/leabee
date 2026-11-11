@@ -88,6 +88,14 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("--host", default="127.0.0.1", help="the host you run `serve` on (changes how strict the checks are)")
     au.add_argument("--staged", action="store_true", help="only scan the lines about to be committed (used by the pre-commit hook)")
     au.add_argument("--online", action="store_true", help="also check whether the GitHub repository is public")
+    sub.add_parser("totp-setup", help="create an authenticator-app (2FA) secret for LEABEE_TOTP_SECRET")
+    sub.add_parser("gen-data-key", help="create LEABEE_DATA_KEY to encrypt notes and backups at rest")
+    al = sub.add_parser("audit-log", help="show the security log (logins, lockouts, exports, searches)")
+    al.add_argument("-n", type=int, default=50)
+    al.add_argument("--event", default="")
+    db = sub.add_parser("decrypt-backup", help="decrypt a .db.enc backup (needs LEABEE_DATA_KEY)")
+    db.add_argument("src")
+    db.add_argument("dst")
     sub.add_parser("hash-password", help="create a LEABEE_PASSWORD_HASH so the plain password is never stored")
     sub.add_parser("copilot", help="run the Parlant sales copilot server (needs parlant and OPENROUTER_API_KEY)")
     sub.add_parser("bot", help="run the Telegram bot (buttons on alerts, /top /stats /due)")
@@ -220,6 +228,29 @@ def main(argv: list[str] | None = None) -> int:
         text, code = report(run_audit(a.host, a.online))
         print(text)
         return code
+    if a.cmd == "totp-setup":
+        from .auth import new_totp_secret, otpauth_uri, totp
+        secret = new_totp_secret()
+        print("1. In your authenticator app (Google Authenticator, Authy, 1Password, Aegis...) add an account by typing this key:")
+        print("   " + secret)
+        print("   (or open this link/QR source: " + otpauth_uri(secret) + ")")
+        print("2. Put it in .env / Vercel as:   LEABEE_TOTP_SECRET=" + secret)
+        print("3. Restart. Login then needs your password AND the 6-digit code. Current code for a quick check: " + totp(secret))
+        print("Keep the key private; anyone with it can generate your codes.")
+        return 0
+    if a.cmd == "gen-data-key":
+        from .crypto import generate_key
+        print("Put this in .env / Vercel / GitHub secrets (NOT in the repo). Lose it and encrypted notes and backups are unrecoverable:")
+        print("LEABEE_DATA_KEY=" + generate_key())
+        return 0
+    if a.cmd == "audit-log":
+        for e in reversed(store.events(a.n, a.event)):
+            print(f"{e['ts']}  {e['ip']:<16} {e['event']:<12} {e['detail']}")
+        return 0
+    if a.cmd == "decrypt-backup":
+        from .crypto import decrypt_file
+        print("wrote", decrypt_file(a.src, a.dst))
+        return 0
     if a.cmd == "hash-password":
         import getpass
         from .security import hash_password, password_problem
@@ -342,7 +373,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Dashboard: http://{a.host}:{a.port}")
         try:
             from waitress import serve as wsgi_serve              # production-grade server when installed
-            wsgi_serve(app, host=a.host, port=a.port, threads=8, max_request_body_size=1_000_000)
+            wsgi_serve(app, host=a.host, port=a.port, threads=8, max_request_body_size=1_000_000, connection_limit=200, channel_timeout=60,
+                       cleanup_interval=10, ident="leabee", clear_untrusted_proxy_headers=True)
         except ImportError:
             app.run(host=a.host, port=a.port, threaded=True, debug=False)
         return 0

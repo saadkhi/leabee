@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Leabee login</title>
+<style nonce="{{ csp_nonce }}">
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--mute:#667085;--line:#e4e7ec;--acc:#2f6fed;--hot:#e5484d}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e8eaf0;--mute:#8b93a7;--line:#262b36;--acc:#6b9bff;--hot:#ff6b6f}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;display:grid;place-items:center;min-height:100vh}
+form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;width:min(360px,92vw)}
+h1{font-size:18px;margin:0 0 16px}label{display:block;font-size:12px;color:var(--mute);margin:12px 0 4px}
+input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+button{width:100%;margin-top:16px;font:inherit;border:0;border-radius:8px;padding:10px;background:var(--acc);color:#fff;cursor:pointer}
+button:disabled{opacity:.6}#err{color:var(--hot);font-size:13px;min-height:18px;margin-top:10px}
+</style></head><body>
+<form id="f" autocomplete="on"><h1>&#x1F41D; Leabee</h1>
+<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required autofocus>
+{% if totp_required %}<label for="code">Authenticator code</label><input id="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code" required>{% endif %}
+<button id="go" type="submit">Log in</button><div id="err" role="alert"></div></form>
+<script nonce="{{ csp_nonce }}">
+document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();var b=document.getElementById('go'),er=document.getElementById('err');b.disabled=true;er.textContent='';
+ try{var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value,code:(document.getElementById('code')||{}).value||''})});
+  if(r.ok){location.href='/';return}var j=await r.json().catch(function(){return{}});er.textContent=r.status===429?'Too many attempts. Try again later.':(j.error||'Login failed')}
+ catch(x){er.textContent='Could not reach the server'}b.disabled=false});
+</script></body></html>

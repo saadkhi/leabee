@@ -55,6 +55,7 @@ def test_vercel_entrypoint_serves_snapshot_with_password(monkeypatch, tmp_path):
     snap = tmp_path / "snap" / "leads.sqlite"
     make_snapshot(s, snap)
     monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
+    monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")
     monkeypatch.setattr(serverless, "SNAPSHOT", snap)
     monkeypatch.setattr(serverless, "TMP_DB", tmp_path / "tmp-leads.db")
     c = serverless.build_app().test_client()
@@ -65,6 +66,7 @@ def test_vercel_entrypoint_serves_snapshot_with_password(monkeypatch, tmp_path):
 
 def test_vercel_entrypoint_without_snapshot(monkeypatch, tmp_path):
     monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
+    monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")
     monkeypatch.setattr(serverless, "SNAPSHOT", tmp_path / "missing.sqlite")
     r = serverless.build_app().test_client().get("/")
     assert r.status_code == 503 and b"snapshot" in r.data

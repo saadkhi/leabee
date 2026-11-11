@@ -6,6 +6,13 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "leabee", "serve", "--port", "8765"],
       "port": 8765
+    },
+    {
+      "name": "leabee-login-test",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "leabee", "serve", "--port", "8766"],
+      "port": 8766,
+      "env": {"LEABEE_PASSWORD": "test-login-password-123", "LEABEE_DB": "data/login_test.db"}
     }
   ]
 }

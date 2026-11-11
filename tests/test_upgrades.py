@@ -123,7 +123,7 @@ def test_alerts_baseline_then_notify(monkeypatch):
 
 def test_outreach_draft():
     d = draft(_lead(categories="content_writing", title="Need a blog writer"))
-    assert "content" in d["short"] and set(d) == {"short", "long", "follow_up"}
+    assert "content" in d["short"] and set(d) == {"short", "long", "follow_up", "source"}
 
 
 def test_github_and_reddit_rotation():

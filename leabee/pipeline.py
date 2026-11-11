@@ -14,7 +14,7 @@ from .storage import Store, now_iso
 from .textutil import canonical_url, clip, lead_id
 
 log = logging.getLogger("leabee.pipeline")
-ALL_SOURCES = ["reddit", "hackernews", "boards", "mastodon", "github", "tinyfish", "gmaps"]
+ALL_SOURCES = ["reddit", "hackernews", "boards", "mastodon", "github", "tinyfish", "gmaps", "tenders"]
 
 
 def item_to_lead(item: RawItem, cfg: dict, now: datetime | None = None) -> dict | None:

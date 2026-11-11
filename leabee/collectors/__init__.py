@@ -6,7 +6,7 @@ from ..models import RawItem
 
 
 def registry() -> dict[str, Callable[..., Iterable[RawItem]]]:
-    from . import boards, github, gmaps, hackernews, mastodon, reddit, tinyfish
+    from . import boards, github, gmaps, hackernews, mastodon, reddit, tenders, tinyfish
     return {
         "reddit": reddit.collect,
         "hackernews": hackernews.collect,
@@ -14,5 +14,6 @@ def registry() -> dict[str, Callable[..., Iterable[RawItem]]]:
         "mastodon": mastodon.collect,
         "github": github.collect,
         "gmaps": gmaps.collect,
+        "tenders": tenders.collect,
         "tinyfish": tinyfish.collect,
     }

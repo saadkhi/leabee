@@ -73,6 +73,7 @@ def normalise(rec: dict) -> dict:
         "country": str(country or _f(rec, "country", "country_code")),
         "rating": _num(_f(rec, "rating", "stars", default=0)),
         "reviews": int(_num(_f(rec, "reviews", "review_count", "reviews_count", default=0))),
+        "reviews_known": any(re.sub(r"[\s\-]+", "_", str(k)).lower() in ("reviews", "review_count", "reviews_count") for k in rec),
         "link": str(_f(rec, "link", "google_maps_url", "maps_url")).strip(),
         "id": str(_f(rec, "kgmid", "place_id", "cid", "data_id", default="")),
         "can_claim": str(_f(rec, "can_claim", "is_claimable", default="")).lower() in ("true", "1", "yes"),
@@ -132,7 +133,7 @@ def score_prospect(item: RawItem, cfg: dict) -> dict | None:
         if not b["emails"] and not b["socials"]:
             need += 6
             gaps.append("site with no email or social links")
-    if b["reviews"] < 15:
+    if b["reviews_known"] and b["reviews"] < 15:
         need += 8
         gaps.append(f"only {b['reviews']} reviews")
     if 0 < b["rating"] < 4.0:
@@ -156,8 +157,8 @@ def score_prospect(item: RawItem, cfg: dict) -> dict | None:
 
     # ---- Value 0-15 (size proxy)
     rv = b["reviews"]
-    comp["value"] = 15 if rv >= 200 else 11 if rv >= 50 else 7 if rv >= 10 else 3
-    why.append(f"+{comp['value']} value: {rv} reviews (size proxy)")
+    comp["value"] = 7 if not b["reviews_known"] else 15 if rv >= 200 else 11 if rv >= 50 else 7 if rv >= 10 else 3
+    why.append(f"+{comp['value']} value: " + (f"{rv} reviews (size proxy)" if b["reviews_known"] else "size unknown (neutral)"))
 
     # ---- Reach 0-15
     phone_mobile = bool(re.match(r"\+?\d[\d\s\-()]{7,}", b["phone"] or ""))

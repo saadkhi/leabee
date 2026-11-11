@@ -117,10 +117,9 @@ schedule:
   every_minutes: 120
   partial: true
 
-# Optional AI second opinion on borderline leads; needs ANTHROPIC_API_KEY in .env.
+# Optional AI second opinion on borderline leads; uses a free OpenRouter key (OPENROUTER_API_KEY) or a local Ollama; see leabee/llm.py.
 ai:
   enabled: true
-  model: claude-haiku-5-5
   band: [35, 75]
   max_per_run: 60
 
@@ -143,7 +142,7 @@ extractors:
   enrich_sites: true
   sites_per_run: 20
   min_score: 50
-  use_agents: false                  # AgentQL / Stagehand / Browser Use / Skyvern as a last resort (costs money)
+  use_agents: false                  # Browser Use + a free LLM as a last resort (slow)
   page_order: [plain, crawl4ai, tinyfish]
 
 # After each collection: snapshot the database, commit it and push to GitHub so Vercel redeploys.

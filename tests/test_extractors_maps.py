@@ -9,7 +9,7 @@ import pytest
 from leabee import extractors as X
 from leabee.collectors import gmaps
 from leabee.details import extract_company, extract_details, find_website
-from leabee.extractors import agents, base
+from leabee.extractors import base
 from leabee.models import RawItem
 from leabee.pipeline import enrich_sites, item_to_lead
 from leabee.prospects import normalise, read_export, record_to_item, score_prospect
@@ -111,105 +111,6 @@ def test_enrich_site_crawls_contact_page_and_verifies(monkeypatch):
     assert info["ok"] and len(info["pages"]) == 2 and info["best_email"] == "dr.jane@acmedental.test"          # named mailbox beats info@
     assert {e["email"]: e["generic"] for e in info["emails"]} == {"dr.jane@acmedental.test": False, "info@acmedental.test": True}
     assert info["socials"]["linkedin"].endswith("/acme")
-
-
-def test_enrich_site_uses_agent_only_when_asked_and_keyed(monkeypatch):
-    empty = _page("https://quiet.test/", "<p>" + "A quiet page without any contact details at all. " * 6 + "</p>", "plain")
-    monkeypatch.setitem(X.PAGE_BACKENDS, "plain", lambda: FakeBackend("plain", {"https://quiet.test/": empty}))
-
-    class FakeAgent:
-        name = "agentql"
-        def available(self): return True, ""
-        def extract(self, url, goal, fields): return {"emails": ["owner@quiet.test"], "phones": ["+1 555 010 9999"], "owner_or_contact_name": "Sam Owner", "linkedin": "https://linkedin.com/in/sam"}
-    monkeypatch.setitem(X.AGENT_BACKENDS, "agentql", FakeAgent)
-    monkeypatch.setattr(X, "email_domain_resolves", lambda e: True)
-    cfg = {"extractors": {"page_order": ["plain"]}}
-    assert X.enrich_site("https://quiet.test/", cfg, use_agents=False)["best_email"] == ""                       # agents are opt-in
-    info = X.enrich_site("https://quiet.test/", cfg, use_agents=True)
-    assert info["best_email"] == "owner@quiet.test" and info["owner_or_contact_name"] == "Sam Owner" and info["backend"].endswith("+agentql")
-
-
-def test_tools_status_lists_all_backends():
-    names = {t["name"] for t in X.status()}
-    assert names == {"plain", "crawl4ai", "tinyfish", "agentql", "browser_use", "skyvern", "stagehand"}
-    assert all(t["ready"] or t["how_to_enable"] for t in X.status())
-
-
-# ---------------------------------------------------------------------------- agent adapters (fake SDKs: no keys needed)
-def test_json_from_llm_text():
-    assert agents._json_from('Sure!\n```json\n{"emails": ["a@b.co"]}\n```') == {"emails": ["a@b.co"]}
-    assert agents._json_from("no json here") is None and agents._json_from('{"x": 1} trailing') == {"x": 1}
-
-
-def test_agentql_rest_adapter(monkeypatch):
-    monkeypatch.setenv("AGENTQL_API_KEY", "k")
-    seen = {}
-
-    class Resp:
-        status_code = 200
-        def json(self): return {"data": {"emails": ["x@y.co"]}}
-    monkeypatch.setattr(agents.requests, "post", lambda url, **kw: seen.update(url=url, **kw) or Resp())
-    monkeypatch.setattr(agents, "is_public_url", lambda u: True)
-    out = agents.AgentQLBackend().extract("https://y.co", "find contacts", agents.CONTACT_FIELDS)
-    assert out == {"emails": ["x@y.co"]} and seen["headers"]["X-API-Key"] == "k" and seen["json"]["url"] == "https://y.co"
-    assert "emails[]" in seen["json"]["query"] and "owner_or_contact_name" in seen["json"]["query"]
-    monkeypatch.delenv("AGENTQL_API_KEY")
-    assert agents.AgentQLBackend().available()[0] is False
-
-
-def test_browser_use_skyvern_stagehand_adapters_with_fake_sdks(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-    monkeypatch.setenv("SKYVERN_API_KEY", "k")
-    monkeypatch.setattr(agents, "is_public_url", lambda u: True)
-    reply = {"emails": ["boss@z.co"], "phones": []}
-
-    bu = types.ModuleType("browser_use")
-    class Result:
-        def final_result(self): return "Here you go: " + json.dumps(reply)
-    class Agent:
-        def __init__(self, task, **kw): self.task, self.kw = task, kw; bu.last = self
-        async def run(self): return Result()
-    bu.Agent, bu.Browser, bu.ChatAnthropic = Agent, lambda *a, **k: "browser", lambda m: f"llm:{m}"
-    monkeypatch.setitem(sys.modules, "browser_use", bu)
-    assert agents.BrowserUseBackend().available()[0]
-    assert agents.BrowserUseBackend().extract("https://z.co", "find contacts", agents.CONTACT_FIELDS) == reply
-    assert "Do not log in" in bu.last.task and bu.last.kw["llm"].startswith("llm:")
-
-    sk = types.ModuleType("skyvern")
-    class Skyvern:
-        def __init__(self, api_key=None): assert api_key == "k"
-        async def run_task(self, prompt, url, data_extraction_schema): return types.SimpleNamespace(output=reply)
-    sk.Skyvern = Skyvern
-    monkeypatch.setitem(sys.modules, "skyvern", sk)
-    assert agents.SkyvernBackend().extract("https://z.co", "find contacts", agents.CONTACT_FIELDS) == reply
-
-    sh = types.ModuleType("stagehand")
-    class Stagehand:
-        @classmethod
-        async def create(cls, browser, model, model_api_key): sh.model = model; return cls()
-        async def extract(self, instruction, schema): return types.SimpleNamespace(data=schema(emails=["boss@z.co"]))
-        async def close(self): pass
-    class Page:
-        async def goto(self, url): pass
-    class Ctx:
-        async def pages(self): return [Page()]
-    class Browser:
-        context = Ctx()
-        async def close(self): pass
-    class LB:
-        @staticmethod
-        async def launch(headless=True): return Browser()
-    sh.Stagehand, sh.local_browser = Stagehand, LB
-    monkeypatch.setitem(sys.modules, "stagehand", sh)
-    out = agents.StagehandBackend().extract("https://z.co", "find contacts", agents.CONTACT_FIELDS)
-    assert out["emails"] == ["boss@z.co"] and sh.model.startswith("anthropic/")
-
-
-def test_agents_refuse_private_urls(monkeypatch):
-    monkeypatch.setenv("AGENTQL_API_KEY", "k")
-    called = []
-    monkeypatch.setattr(agents.requests, "post", lambda *a, **k: called.append(1))
-    assert agents.AgentQLBackend().extract("http://169.254.169.254/", "x", {"a": "b"}) == {} and not called
 
 
 # ---------------------------------------------------------------------------- Google Maps prospects

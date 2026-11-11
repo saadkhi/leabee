@@ -95,14 +95,14 @@ def test_ai_parse_and_review_flow(monkeypatch):
     s = Store(":memory:")
     s.upsert(_lead("1", 50))
     s.upsert(_lead("2", 50, title="second lead title long enough", author=""))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "x")
     answers = iter([("buyer", "wants automation"), ("reject", "seller")])
-    monkeypatch.setattr(ai, "review_one", lambda lead, key, model, sess=None: next(answers))
+    monkeypatch.setattr(ai, "review_one", lambda lead: next(answers))
     res = ai.review({"ai": {}}, s)
     assert res["reviewed"] == 2 and res["rejected"] == 1
     assert s.get("1")["score"] == 55 and s.get("1")["ai_verdict"] == "buyer"
     assert s.get("2")["status"] == "ignored"
-    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.delenv("OPENROUTER_API_KEY")
     assert "skipped" in ai.review({}, s)
 
 

@@ -60,3 +60,19 @@ def pipeline_summary(store: Store) -> dict:
     return {"active_leads": st["total"], "hot": st["hot"], "with_contact": st["with_contact"], "follow_ups_due": st["follow_ups_due"],
             "by_status": {r["status"]: r["n"] for r in st["by_status"]}, "top_categories": st["by_category"][:5],
             "follow_ups": [{"id": l["id"][:20], "title": l["title"][:80], "due": l["follow_up"]} for l in due]}
+
+
+def find_businesses(store: Store, cfg: dict, request: str, count: int = 12, save: bool = False) -> dict:
+    """Real businesses for a request like "plumbers in North Carolina" (free OpenStreetMap data + their own websites)."""
+    from ..discovery import find_businesses as _find, save_to_pipeline
+
+    res = _find(request, int(count) if count else None, cfg, store=store)
+    if res.get("error"):
+        return {"error": res["error"]}
+    out = {"query": res["query"], "stats": res["stats"], "notes": res["notes"], "businesses": [
+        {"name": b["name"], "phone": b.get("phone") or "not found", "website": b.get("website") or "not found", "email": b.get("email") or "not found",
+         "address": b.get("address") or "not found", "hours": b.get("hours") or "", "verified": b.get("verified", {}), "source": b["source"]}
+        for b in res["businesses"]]}
+    if save:
+        out["saved_to_pipeline"] = save_to_pipeline(store, cfg, res["businesses"])
+    return out

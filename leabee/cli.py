@@ -73,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("-s", "--sources", default="hackernews,boards,mastodon,github,reddit")
     dr.add_argument("-o", "--out", default="data/eval/raw.jsonl")
     dr.add_argument("--partial", action="store_true")
+    es2 = sub.add_parser("eval-sample", help="draw a fresh blind sample from raw dumps for hand labelling (posts only, no verdicts)")
+    es2.add_argument("raw", nargs="+")
+    es2.add_argument("-x", "--exclude", nargs="*", default=[])
+    es2.add_argument("-o", "--out", default="data/eval/labeled_new.json")
+    sub.add_parser("copilot", help="run the Parlant sales copilot server (needs parlant[anthropic] and ANTHROPIC_API_KEY)")
     sub.add_parser("bot", help="run the Telegram bot (buttons on alerts, /top /stats /due)")
     sub.add_parser("digest", help="send the daily digest to your alert channels")
     sub.add_parser("tools", help="show which extractor tools (Crawl4AI, AgentQL, Browser Use, Skyvern, Stagehand...) are ready")
@@ -161,6 +166,15 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "backup":
         from .jobs import backup_dir
         print("backup:", store.backup(backup_dir(cfg), int((cfg.get("backup", {}) or {}).get("keep", 14))))
+        return 0
+    if a.cmd == "eval-sample":
+        from .evaluate import sample_blind
+        for line in sample_blind(cfg, a.raw, a.exclude, a.out):
+            print(line)
+        return 0
+    if a.cmd == "copilot":
+        from .copilot.agent import run as run_copilot
+        run_copilot()
         return 0
     if a.cmd == "bot":
         from .telegram_bot import run as run_bot

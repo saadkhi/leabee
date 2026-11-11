@@ -192,7 +192,7 @@ class Store:
               platform: str = "", lead_type: str = "", q: str = "", has_contact: bool = False,
               since_hours: float = 0, sort: str = "score", limit: int = 200, offset: int = 0,
               exclude_ignored: bool = True, language: str = "", ai: str = "", follow_due: bool = False,
-              ids: list | None = None) -> tuple[list[dict], int]:
+              ids: list | None = None, grade: str = "", kind: str = "") -> tuple[list[dict], int]:
         where, args = ["score >= ?"], [min_score]
         if status:
             where.append("status = ?"); args.append(status)
@@ -216,6 +216,10 @@ class Store:
                 where.append("language = ?"); args.append(language)
         if ai:
             where.append("ai_verdict = ?"); args.append(ai)
+        if grade:
+            where.append("grade = ?"); args.append(grade)
+        if kind:
+            where.append("kind = ?"); args.append(kind)
         if has_contact:
             where.append("contact != ''")
         if follow_due:

@@ -1,6 +1,6 @@
 requests>=2.31
 PyYAML>=6.0
 Flask>=3.0
-psycopg[binary]>=3.2
+psycopg[binary]>=3.3.8
 waitress>=3.0
 defusedxml>=0.7

@@ -8,7 +8,7 @@ from leabee.storage import Store
 from leabee.web import create_app
 
 CFG = {"min_score": 35, "max_age_days": 10 ** 5, "hot_score": 70}
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"me:pw").decode()}
+AUTH = {"Authorization": "Basic " + base64.b64encode(b"me:correct-horse-battery").decode()}
 
 
 def _lead(i, score=60, **kw):
@@ -54,7 +54,7 @@ def test_vercel_entrypoint_serves_snapshot_with_password(monkeypatch, tmp_path):
     s.upsert(_lead("1", 90))
     snap = tmp_path / "snap" / "leads.sqlite"
     make_snapshot(s, snap)
-    monkeypatch.setenv("LEABEE_PASSWORD", "pw")
+    monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
     monkeypatch.setattr(serverless, "SNAPSHOT", snap)
     monkeypatch.setattr(serverless, "TMP_DB", tmp_path / "tmp-leads.db")
     c = serverless.build_app().test_client()
@@ -64,7 +64,7 @@ def test_vercel_entrypoint_serves_snapshot_with_password(monkeypatch, tmp_path):
 
 
 def test_vercel_entrypoint_without_snapshot(monkeypatch, tmp_path):
-    monkeypatch.setenv("LEABEE_PASSWORD", "pw")
+    monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
     monkeypatch.setattr(serverless, "SNAPSHOT", tmp_path / "missing.sqlite")
     r = serverless.build_app().test_client().get("/")
     assert r.status_code == 503 and b"snapshot" in r.data

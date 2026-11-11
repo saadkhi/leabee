@@ -26,8 +26,8 @@ _PAY = [
     ("monthly", re.compile(r"/\s?(?:mo|month)\b|\bper month\b|\bmonthly (?:retainer|fee|pay|salary)\b|\ba month\b|\bretainer\b", I)),
     ("per-unit", re.compile(r"\bper (?:word|article|video|post|page|project|lead|task)\b", I)),
 ]
-_HOURS = re.compile(r"\b((?:less than|more than|about|around|up to|~)?\s*\d{1,2}(?:\s*[-–to]+\s*\d{1,2})?\+?\s*(?:hrs?|hours?)\s*(?:/|per|a)\s*week)\b", I)
-_DURATION = re.compile(r"\b((?:less than|more than|about|around)?\s*\d+\s*(?:to|-|–)\s*\d+\s*(?:months?|weeks?)|(?:less than|more than)\s+\d+\s+(?:months?|weeks?|years?)|"
+_HOURS = re.compile(r"\b((?:less than|more than|about|around|up to|~)?\s*\d{1,2}(?:\s*[-\u2013to]+\s*\d{1,2})?\+?\s*(?:hrs?|hours?)\s*(?:/|per|a)\s*week)\b", I)
+_DURATION = re.compile(r"\b((?:less than|more than|about|around)?\s*\d+\s*(?:to|-|\u2013)\s*\d+\s*(?:months?|weeks?)|(?:less than|more than)\s+\d+\s+(?:months?|weeks?|years?)|"
                        r"\d+\s*(?:months?|weeks?)\s*(?:contract|project|engagement)?|long[- ]term|short[- ]term|one[- ]time|ongoing)\b", I)
 _DEADLINE = re.compile(r"\b(?:deadline(?:\s+is)?\s*[:\-]?\s*|due(?:\s+(?:on|by))?\s+|needed by\s+|by\s+|before\s+|until\s+)"
                        r"((?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{4})?)|"

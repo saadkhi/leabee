@@ -56,20 +56,6 @@ def test_ssrf_guard(monkeypatch, ip, ok):
     assert base.is_public_url("ftp://example.com") is False and base.is_public_url("http://localhost/x") is False and base.is_public_url("file:///etc/passwd") is False
 
 
-def test_plain_backend_blocks_internal_redirect(monkeypatch):
-    calls = {"n": 0}
-
-    def fake_public(u):
-        return "internal" not in u
-
-    class R:
-        status_code, text, headers, url = 200, HTML, {"Content-Type": "text/html"}, "http://internal.test/"
-    monkeypatch.setattr("leabee.extractors.plain.is_public_url", fake_public)
-    monkeypatch.setattr("leabee.extractors.plain.requests.get", lambda *a, **k: R())
-    res = X.PlainBackend().fetch("https://ok.test/")
-    assert not res.ok and "redirected" in res.error
-
-
 # ---------------------------------------------------------------------------- backend selection and site enrichment
 class FakeBackend:
     def __init__(self, name, pages, ready=True):

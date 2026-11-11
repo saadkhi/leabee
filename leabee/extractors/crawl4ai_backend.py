@@ -60,6 +60,9 @@ class Crawl4AIBackend:
             res = await crawler.arun(url=url, config=rcfg)
         if not getattr(res, "success", False):
             return PageResult(url=url, backend=self.name, error=(getattr(res, "error_message", "") or "crawl failed")[:200])
+        final = getattr(res, "url", url) or url
+        if not is_public_url(final):
+            return PageResult(url=url, backend=self.name, error="blocked: redirected to a non-public address")
         html = getattr(res, "html", "") or ""
         md = getattr(res, "markdown", "")
         text = str(getattr(md, "raw_markdown", md) or "")

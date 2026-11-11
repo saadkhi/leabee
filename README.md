@@ -206,6 +206,14 @@ Cold outreach is regulated (GDPR, CAN-SPAM, CASL): keep it relevant and honour o
 
 Tune everything in `config.yaml` (subreddits, queries, languages, `profile`, `min_score`, `max_age_days`).
 
+## Security
+
+Read **SECURITY.md** (threat table, checklist, limits). Short version: set a strong `LEABEE_PASSWORD` (or `LEABEE_PASSWORD_HASH` from
+`python -m leabee hash-password`), keep keys in `.env` / Vercel / GitHub secrets, enable the commit guard with
+`git config core.hooksPath .githooks`, and run `python -m leabee audit`. The app sends strict security headers (CSP with nonce, no framing),
+blocks cross-site writes, locks out repeated bad logins, rate-limits expensive actions, validates every input, hardens all outbound fetching
+against SSRF, redacts secrets from logs, and fences scraped text before it reaches an LLM.
+
 ## Responsible use
 
 Only public data is used. Respect each site's terms, reply on the platform where the person asked, include an

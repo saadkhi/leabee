@@ -6,6 +6,7 @@ Notes for Neon on serverless: use the *pooled* connection string (host contains 
 from __future__ import annotations
 
 from contextlib import nullcontext
+from urllib.parse import urlsplit
 from decimal import Decimal
 
 
@@ -73,6 +74,9 @@ class PgConnection:
     def _get(self):
         if self._conn is None or self._conn.closed:
             extra = {} if "connect_timeout" in self.dsn else {"connect_timeout": self.connect_timeout}
+            host = (urlsplit(self.dsn).hostname or "").lower()
+            if "sslmode" not in self.dsn and host not in ("localhost", "127.0.0.1", "::1", ""):
+                extra["sslmode"] = "require"                    # never talk to a remote database in clear text
             self._conn = self._pg.connect(self.dsn, autocommit=True, prepare_threshold=None, **extra)
         return self._conn
 

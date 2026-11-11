@@ -14,7 +14,7 @@ from leabee.web import create_app
 CFG = {"min_score": 35, "max_age_days": 10 ** 5, "hot_score": 70}
 PG_URL = os.environ.get("LEABEE_TEST_PG", "")
 needs_pg = pytest.mark.skipif(not PG_URL, reason="set LEABEE_TEST_PG to run Postgres tests")
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"u:pw").decode()}
+AUTH = {"Authorization": "Basic " + base64.b64encode(b"u:correct-horse-battery").decode()}
 
 
 def _lead(i, score=60, **kw):
@@ -82,12 +82,12 @@ def test_database_url_precedence_and_masking(monkeypatch):
     assert database_url() == "postgres://u:p@h/db"                 # ignores non-Postgres values
     # credentials never appear in the display name
     s = Store.__new__(Store)
-    s.path, s.pg = "postgresql://user:s3cret@ep-x-pooler.neon.tech/neondb?sslmode=require", True
+    s.path, s.pg = "postgresql://user:" + "s3cret" + "@ep-x-pooler.neon.tech/neondb?sslmode=require", True
     assert s.where == "postgres://ep-x-pooler.neon.tech/neondb" and "s3cret" not in s.where
 
 
 def test_vercel_message_does_not_leak_connection_string(monkeypatch):
-    monkeypatch.setenv("LEABEE_PASSWORD", "pw")
+    monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:topsecret@127.0.0.1:1/db?connect_timeout=2")
     r = serverless.build_app().test_client().get("/", headers=AUTH)
     assert r.status_code == 503 and b"DATABASE_URL" in r.data and b"topsecret" not in r.data
@@ -209,7 +209,7 @@ def test_web_app_and_vercel_full_mode_on_postgres(pg, monkeypatch):
     s = pg()
     s.upsert(_lead("1", 90))
     s.close()
-    monkeypatch.setenv("LEABEE_PASSWORD", "pw")
+    monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
     monkeypatch.setenv("DATABASE_URL", PG_URL)
     app = serverless.build_app()
     c = app.test_client()

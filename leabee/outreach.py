@@ -8,6 +8,7 @@ import json
 import os
 
 from . import llm
+from . import security as sec
 
 CATEGORY_PITCH = {
     "web_development": "build and launch websites and web apps quickly",
@@ -44,18 +45,18 @@ def template_draft(lead: dict, cfg: dict | None = None) -> dict:
         gap = (d.get("gaps") or ["your online presence"])[0]
         biz = d.get("company") or lead.get("author") or "your business"
         short = (f"Hi! I came across {biz} on Google Maps and noticed {gap}. I help local businesses with {d.get('pitch', 'their online presence')}. "
-                 f"Happy to send a quick idea or two, no obligation. If it's not relevant, just say so. — {me}")
+                 f"Happy to send a quick idea or two, no obligation. If it's not relevant, just say so. \u2014 {me}")
         long = (f"Hi,\n\nI was looking at {biz} and noticed {gap}. I {pitch if cats else 'help local businesses get more customers online'}, "
                 f"and thought a short, specific suggestion might be useful.\n\nIf you'd like, I can send 2-3 concrete ideas for {biz} (free, no strings).\n\n"
                 f"Best,\n{me}\n\nP.S. If this isn't relevant, tell me and I won't follow up.")
-        return {"short": short, "long": long, "follow_up": f"Hi, following up on my note about {biz}. Happy to share the ideas whenever it suits. — {me}", "source": "template"}
+        return {"short": short, "long": long, "follow_up": f"Hi, following up on my note about {biz}. Happy to share the ideas whenever it suits. \u2014 {me}", "source": "template"}
     short = (f"Hi! Saw your post (\"{ref}\"). I {pitch} and can start this week. Happy to share relevant examples. "
-             f"Want a quick call or a short brief first? — {me}")
+             f"Want a quick call or a short brief first? \u2014 {me}")
     long = (f"Hi,\n\nI came across your post \"{ref}\" on {lead.get('platform', 'the platform')}.\n\nI {pitch}. For a project like this I would: "
             f"(1) confirm scope and success criteria, (2) share a clear timeline and fixed or hourly quote, (3) deliver in small milestones so you see progress early.\n\n"
             f"If you can share a bit more detail (goals, deadline, budget range), I can reply with a concrete plan today.\n\nBest,\n{me}\n\n"
             f"P.S. If this isn't relevant, just say so and I won't follow up.")
-    follow = f"Hi, just following up on my earlier message about \"{ref}\". Still happy to help if this is open, otherwise no worries. — {me}"
+    follow = f"Hi, just following up on my earlier message about \"{ref}\". Still happy to help if this is open, otherwise no worries. \u2014 {me}"
     return {"short": short, "long": long, "follow_up": follow, "source": "template"}
 
 
@@ -74,11 +75,14 @@ def ai_draft(lead: dict, cfg: dict | None = None) -> dict | None:
         "End 'long' with a one-line opt-out. Return ONLY JSON: {\"short\": \"...\", \"long\": \"...\", \"follow_up\": \"...\"}\n\n"
         f"SELLER: name={_name(cfg)}; services={', '.join(prof.get('services') or []) or 'not specified'}; skills={', '.join(prof.get('skills') or []) or 'not specified'}; "
         f"pitch={prof.get('pitch', '')}; portfolio={prof.get('portfolio_url', '')}; rate={prof.get('rate', '')}\n"
-        f"LEAD ({lead.get('kind', 'gig')}, {lead.get('platform')}): title={lead.get('title')}\nDETAILS: {json.dumps(details, ensure_ascii=False)[:600]}\n"
-        f"POST: {(lead.get('text') or '')[:1800]}")
-    d = llm.complete_json(prompt, max_tokens=900)
+        f"LEAD ({lead.get('kind', 'gig')}, {lead.get('platform')}):\n"
+        + sec.untrusted(f"title={lead.get('title')}\nDETAILS: {json.dumps(details, ensure_ascii=False)[:600]}\nPOST: {lead.get('text') or ''}"))
+    d = llm.complete_json(prompt, system=sec.UNTRUSTED_NOTE, max_tokens=900)
     if not isinstance(d, dict) or not all(isinstance(d.get(k), str) and d[k].strip() for k in ("short", "long", "follow_up")):
         return None
+    allowed = sec.links_in(f"{prof.get('portfolio_url', '')} {lead.get('url', '')}")
+    if any(sec.links_in(d[k]) - allowed for k in ("short", "long", "follow_up")):
+        return None            # a draft containing any link we did not supply could be a phishing link injected through the post
     return {"short": d["short"].strip(), "long": d["long"].strip(), "follow_up": d["follow_up"].strip(), "source": "ai"}
 
 

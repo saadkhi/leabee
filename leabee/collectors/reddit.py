@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 from typing import Iterator
 from urllib.parse import quote_plus
 
@@ -21,7 +21,7 @@ _BUYER_FLAIR = re.compile(r"^\s*[\[\(]\s*(hiring|task|paid|request|looking for|w
 def parse_feed(xml_text: str, default_sub: str = "") -> list[RawItem]:
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
+    except (ET.ParseError, ValueError) as e:
         log.warning("bad reddit feed: %s", e)
         return []
     items: list[RawItem] = []

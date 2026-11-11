@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 from typing import Iterator
 
 from ..models import RawItem
@@ -66,7 +66,7 @@ def parse_remotive(data: dict) -> list[RawItem]:
 def parse_wwr(xml_text: str) -> list[RawItem]:
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError:
+    except (ET.ParseError, ValueError):
         return []
     out = []
     for it in root.iter("item"):

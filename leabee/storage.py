@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .security import csv_safe
+
 COLUMNS = ["id", "source", "platform", "lead_type", "title", "text", "url", "author", "author_url",
            "posted_at", "found_at", "categories", "country", "budget_text", "budget_usd", "contact",
            "score", "status", "notes", "enriched", "reasons", "language", "ai_verdict", "ai_summary",
@@ -499,7 +501,7 @@ class Store:
         for r in rows:
             r = dict(r)
             r["text"] = (r.get("text") or "")[:1500].replace("\r", " ")
-            w.writerow(r)
+            w.writerow({k: csv_safe(v) for k, v in r.items()})      # neutralise spreadsheet formulas (=, +, -, @)
         return buf.getvalue()
 
     def close(self) -> None:

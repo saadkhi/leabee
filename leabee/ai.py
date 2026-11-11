@@ -9,6 +9,7 @@ import logging
 import re
 
 from . import llm
+from . import security as sec
 from .storage import Store
 
 log = logging.getLogger("leabee.ai")
@@ -21,9 +22,9 @@ Answer ONLY with JSON: {"verdict": "buyer" | "maybe" | "reject", "summary": "<ma
 - "reject": a seller/freelancer advertising, job seeker, employee job ad, showcase, tutorial, discussion, spam, or on-site only.
 - "maybe": unclear.
 
-Title: {title}
 Platform: {platform}
-Text: {text}"""
+Post:
+{post}"""
 
 _JSON = re.compile(r"\{.*\}", re.S)
 
@@ -43,9 +44,9 @@ def parse_verdict(raw: str) -> tuple[str, str]:
 
 
 def review_one(lead: dict) -> tuple[str, str]:
-    prompt = (PROMPT.replace("{title}", lead["title"][:300]).replace("{platform}", lead["platform"])
-              .replace("{text}", (lead["text"] or "")[:1800]))
-    return parse_verdict(llm.complete(prompt, max_tokens=150, temperature=0))
+    post = sec.untrusted(f"{lead['title'][:300]}\n{lead['text'] or ''}")
+    prompt = PROMPT.replace("{platform}", str(lead["platform"])[:40]).replace("{post}", post)
+    return parse_verdict(llm.complete(prompt, system=sec.UNTRUSTED_NOTE, max_tokens=150, temperature=0))
 
 
 def review(cfg: dict, store: Store, limit: int | None = None, progress=None) -> dict:

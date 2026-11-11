@@ -121,7 +121,7 @@ dialog textarea{min-height:130px}
   </div>
 </dialog>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 const $=id=>document.getElementById(id);
 const HOT={{hot}};
 const STATUSES={{ statuses|tojson }};
@@ -187,12 +187,13 @@ async function load(append=false){
   shown+=r.leads.length;
   const html=r.leads.map(card).join('');
   if(append)$('list').insertAdjacentHTML('beforeend',html);else $('list').innerHTML=html;
-  if(shown<r.total)$('list').insertAdjacentHTML('beforeend','<div id="more" class="empty"><button class="primary" onclick="load(true)">Load more ('+(r.total-shown)+' left)</button></div>');
+  if(shown<r.total)$('list').insertAdjacentHTML('beforeend','<div id="more" class="empty"><button class="primary loadmore">Load more ('+(r.total-shown)+' left)</button></div>');
 }
 async function patch(id,body){const r=await fetch('/api/leads/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r.status===403){const j=await r.json();alert(j.error)}return r}
 function refreshBulk(){const n=selected.size;$('bulk').classList.toggle('on',n>0);$('selcount').textContent=n+' selected'}
 $('list').addEventListener('click',async e=>{
+  if(e.target.classList.contains('loadmore')){load(true);return}
   const c=e.target.closest('.lead');if(!c)return;
   if(e.target.classList.contains('more')){const t=c.querySelector('.text');t.classList.toggle('open');e.target.textContent=t.classList.contains('open')?'Show less':'Show more'}
   if(e.target.classList.contains('note')){const n=c.querySelector('.notes');n.hidden=!n.hidden}
@@ -228,6 +229,7 @@ $('dcopy').onclick=async()=>{try{await navigator.clipboard.writeText($('dtext').
 $('dclose').onclick=()=>$('dlg').close();
 // ---- find businesses (free OpenStreetMap)
 let found=[];
+const csafe=c=>{c=String(c||'');return /^[=+\-@\t\r]/.test(c)?"'"+c:c};
 $('findbtn').onclick=()=>{$('fnd').showModal();$('fq').focus()};
 $('fclose').onclick=()=>$('fnd').close();
 function frow(b,i){const v=b.verified||{};const ok=(x)=>x===true?' ✓':x===false?' ⚠':'';
@@ -241,7 +243,7 @@ async function fsearch(save){const q=$('fq').value.trim();if(!q)return;$('fgo').
     $('fstat').textContent=`${st.returned} shown of ${st.found_on_map} mapped · phone ${st.with_phone} · website ${st.with_website} · email ${st.with_email} · fully complete ${st.fully_complete}. `+j.notes.join(' ')+(j.saved?` Saved ${j.saved.saved} to your pipeline.`:'');
     $('fsave').hidden=false;$('fcsv').hidden=false;
     const rows=[['name','phone','email','website','address']].concat(found.map(b=>[b.name,b.phone,b.email,b.website,b.address]));
-    $('fcsv').href='data:text/csv;charset=utf-8,'+encodeURIComponent('\ufeff'+rows.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(',')).join('\r\n'));$('fcsv').download='businesses.csv'}
+    $('fcsv').href='data:text/csv;charset=utf-8,'+encodeURIComponent('\ufeff'+rows.map(r=>r.map(c=>'"'+csafe(c).replace(/"/g,'""')+'"').join(',')).join('\r\n'));$('fcsv').download='businesses.csv'}
   catch(e){$('fstat').textContent='Could not reach the server.'}$('fgo').disabled=false}
 $('fgo').onclick=()=>fsearch(false);$('fq').addEventListener('keydown',e=>{if(e.key==='Enter')fsearch(false)});
 $('fsave').onclick=async()=>{await fsearch(true);loadStats();load()};

@@ -165,12 +165,12 @@ def test_web_new_endpoints(monkeypatch):
 
 
 def test_password_protection(monkeypatch):
-    monkeypatch.setenv("LEABEE_PASSWORD", "s3cret")
+    monkeypatch.setenv("LEABEE_PASSWORD", "correct-horse-battery")
     c = create_app(CFG, Store(":memory:")).test_client()
     assert c.get("/api/stats").status_code == 401
     import base64
-    ok = {"Authorization": "Basic " + base64.b64encode(b"me:s3cret").decode()}
-    bad = {"Authorization": "Basic " + base64.b64encode(b"me:nope").decode()}
+    ok = {"Authorization": "Basic " + base64.b64encode(b"me:correct-horse-battery").decode()}
+    bad = {"Authorization": "Basic " + base64.b64encode(b"me:wrong-password-here").decode()}
     assert c.get("/api/stats", headers=ok).status_code == 200
     assert c.get("/api/stats", headers=bad).status_code == 401
 

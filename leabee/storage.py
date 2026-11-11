@@ -250,6 +250,10 @@ class Store:
             r = self._conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
         return dict(r) if r else None
 
+    def find_by_prefix(self, prefix: str) -> dict | None:
+        rows = self._many([("SELECT * FROM leads WHERE id LIKE ? LIMIT 2", (prefix.replace("%", "") + "%",))])[0]
+        return dict(rows[0]) if len(rows) == 1 else None
+
     def update_user_fields(self, lead_id: str, status: str | None = None, notes: str | None = None,
                            follow_up: str | None = None, deal_value: float | None | str = "unset") -> bool:
         if status is not None and status not in STATUSES:

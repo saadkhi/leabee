@@ -84,7 +84,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
         lead = store.get(lead_id)
         if not lead:
             return jsonify(error="not found"), 404
-        return jsonify(draft(lead))
+        return jsonify(draft(lead, cfg, use_ai=request.args.get("ai", "1") != "0"))
 
     @app.patch("/api/leads/<lead_id>")
     def patch_lead(lead_id):

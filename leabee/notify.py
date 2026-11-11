@@ -29,7 +29,7 @@ def channels() -> list[str]:
 
 
 def format_lead(l: dict) -> str:
-    bits = [f"🔥 {l['score']} · {l['platform']} · {l.get('country') or 'country unknown'}", l["title"][:200]]
+    bits = [f"{l.get('grade') or ''} {l['score']} · {l['platform']} · {l.get('country') or 'country unknown'}", l["title"][:200]]
     if l.get("ai_summary"):
         bits.append(l["ai_summary"])
     if l.get("budget_text"):
@@ -40,10 +40,20 @@ def format_lead(l: dict) -> str:
     return "\n".join(bits)
 
 
-def _telegram(text: str) -> None:
+def lead_buttons(l: dict) -> dict:
+    """Inline keyboard for a lead alert; leabee.telegram_bot handles the callbacks."""
+    i = l["id"][:20]
+    return {"inline_keyboard": [[{"text": "Draft reply", "callback_data": f"d:{i}"}, {"text": "Contacted", "callback_data": f"c:{i}"},
+                                 {"text": "Ignore", "callback_data": f"i:{i}"}],
+                                [{"text": "Open post", "url": l["url"]}]]}
+
+
+def _telegram(text: str, markup: dict | None = None) -> None:
     e = os.environ
-    r = requests.post(f"https://api.telegram.org/bot{e['TELEGRAM_BOT_TOKEN']}/sendMessage", timeout=20,
-                      json={"chat_id": e["TELEGRAM_CHAT_ID"], "text": text[:4000], "disable_web_page_preview": True})
+    body = {"chat_id": e["TELEGRAM_CHAT_ID"], "text": text[:4000], "disable_web_page_preview": True}
+    if markup:
+        body["reply_markup"] = markup
+    r = requests.post(f"https://api.telegram.org/bot{e['TELEGRAM_BOT_TOKEN']}/sendMessage", timeout=20, json=body)
     r.raise_for_status()
 
 
@@ -64,10 +74,12 @@ def _email(subject: str, text: str) -> None:
         s.send_message(msg)
 
 
-def send(text: str, subject: str = "Leabee alert") -> list[str]:
+def send(text: str, subject: str = "Leabee alert", skip: tuple = ()) -> list[str]:
     """Send to every configured channel. Returns the channels that succeeded."""
     ok = []
     for ch in channels():
+        if ch in skip:
+            continue
         try:
             {"telegram": lambda: _telegram(text), "discord": lambda: _discord(text),
              "email": lambda: _email(subject, text)}[ch]()
@@ -89,8 +101,16 @@ def alert_new_hot(cfg: dict, store: Store) -> dict:
     leads = store.to_notify(threshold, int(ncfg.get("max_per_run", 10)))
     if not leads:
         return {"sent": 0}
-    text = f"{len(leads)} new hot lead(s)\n\n" + "\n\n".join(format_lead(l) for l in leads)
-    ok = send(text, f"Leabee: {len(leads)} new hot lead(s)")
+    text = f"{len(leads)} new hot lead(s)" + chr(10)*2 + (chr(10)*2).join(format_lead(l) for l in leads)
+    ok = []
+    if "telegram" in channels():                      # one message per lead, each with action buttons
+        try:
+            for l in leads:
+                _telegram(format_lead(l), lead_buttons(l))
+            ok.append("telegram")
+        except Exception as ex:
+            log.warning("alert via telegram failed: %s", ex)
+    ok += [c for c in send(text, f"Leabee: {len(leads)} new hot lead(s)", skip=("telegram",))]
     if ok:
         store.mark_notified([l["id"] for l in leads])
     return {"sent": len(leads) if ok else 0, "channels": ok}

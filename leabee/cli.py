@@ -73,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("-s", "--sources", default="hackernews,boards,mastodon,github,reddit")
     dr.add_argument("-o", "--out", default="data/eval/raw.jsonl")
     dr.add_argument("--partial", action="store_true")
+    sub.add_parser("bot", help="run the Telegram bot (buttons on alerts, /top /stats /due)")
+    sub.add_parser("digest", help="send the daily digest to your alert channels")
     sub.add_parser("tools", help="show which extractor tools (Crawl4AI, AgentQL, Browser Use, Skyvern, Stagehand...) are ready")
     im = sub.add_parser("import-maps", help="import a Google Maps Extractor export (.csv/.json) as prospects")
     im.add_argument("file")
@@ -159,6 +161,15 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "backup":
         from .jobs import backup_dir
         print("backup:", store.backup(backup_dir(cfg), int((cfg.get("backup", {}) or {}).get("keep", 14))))
+        return 0
+    if a.cmd == "bot":
+        from .telegram_bot import run as run_bot
+        run_bot(cfg, store)
+        return 0
+    if a.cmd == "digest":
+        from .digest import build, send_digest
+        res = send_digest(cfg, store)
+        print(res["text"] if not res.get("sent") else f"sent via {res['channels']}")
         return 0
     if a.cmd == "tools":
         from .extractors import status

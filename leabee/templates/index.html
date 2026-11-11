@@ -30,6 +30,9 @@ main{padding:0 20px 90px;max-width:1200px;margin:0 auto}
 .meta{color:var(--mute);font-size:12px;margin-top:2px;display:flex;gap:10px;flex-wrap:wrap}
 .tag{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:12px}
 .tag.ai{border-color:var(--ok);color:var(--ok)}
+.grade{font-weight:700;border-radius:6px;padding:0 6px;font-size:12px;color:#fff}.gA{background:var(--hot)}.gB{background:var(--warn)}.gC{background:var(--acc)}.gD{background:var(--mute)}
+.chip2{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px;color:var(--ink)}
+.next{color:var(--ink);font-size:13px;margin-top:6px}.why{font-size:12px;color:var(--mute);margin:6px 0}.why summary{cursor:pointer}
 .text{white-space:pre-wrap;color:var(--mute);margin:8px 0;max-height:7.5em;overflow:hidden}
 .text.open{max-height:none}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -57,6 +60,7 @@ dialog textarea{min-height:130px}
   <h1>🐝 Leabee Leads</h1>
   <div class="stats" id="stats"></div>
   <div class="row">
+    <button id="copilotbtn">Copilot</button>
     <a class="nav" href="/board"><button>Board</button></a>
     <a class="nav" href="/insights"><button>Dashboard</button></a>
     <button class="primary" id="collect" {% if readonly %}hidden{% endif %} title="{% if remote_collect %}Runs on GitHub Actions; takes a few minutes{% endif %}">Collect new leads</button>
@@ -77,6 +81,8 @@ dialog textarea{min-height:130px}
   <select id="since_hours"><option value="0">Any age</option><option value="24">Last 24h</option><option value="72">Last 3 days</option><option value="168">Last 7 days</option></select>
   <select id="min_score"><option value="0">Any score</option><option value="50">50+</option><option value="60">60+</option><option value="70">70+ (hot)</option></select>
   <select id="ai"><option value="">AI: any</option><option value="buyer">AI-confirmed buyers</option><option value="maybe">AI: unsure</option></select>
+  <select id="grade"><option value="">Any grade</option><option value="A">A (80+)</option><option value="B">B (65-79)</option><option value="C">C (50-64)</option><option value="D">D (&lt;50)</option></select>
+  <select id="kind"><option value="">Gigs + prospects</option><option value="gig">Client gigs</option><option value="prospect">Prospects (Maps)</option><option value="role">Employee roles</option></select>
   <select id="sort"><option value="score">Best score</option><option value="new">Newest</option><option value="budget">Biggest budget</option><option value="follow_up">Follow-up date</option></select>
   <label><input type="checkbox" id="contact"> has contact</label>
   <label><input type="checkbox" id="follow_due"> follow-ups due</label>
@@ -93,6 +99,11 @@ dialog textarea{min-height:130px}
   <button id="selclear">Clear</button>
 </div>
 
+<dialog id="cop">
+  <h3 style="margin:0 0 8px">Copilot <span style="font-weight:400;color:var(--mute);font-size:12px">ask about your leads, drafts and follow-ups; it never sends anything</span></h3>
+  <div id="copmsgs" style="max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+  <div class="row"><input id="copin" placeholder="e.g. best new automation leads in the US" style="flex:1"><button id="copsend" class="primary">Send</button><button id="copclose">Close</button></div>
+</dialog>
 <dialog id="dlg">
   <h3 style="margin:0 0 8px">Reply drafts <span style="font-weight:400;color:var(--mute);font-size:12px">— review and edit, then send it yourself on the original post</span></h3>
   <div class="row" id="dtabs"></div>
@@ -108,7 +119,7 @@ const HOT={{hot}};
 const STATUSES={{ statuses|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl=u=>/^https?:\/\//i.test(u)?u:'#';
-const F=['q','category','country','language','platform','type','status','since_hours','min_score','ai','sort'];
+const F=['q','category','country','language','platform','type','status','since_hours','min_score','ai','grade','kind','sort'];
 const CB=['contact','follow_due'];
 const selected=new Set();
 function params(){const p=new URLSearchParams();F.forEach(k=>{const v=$(k).value;if(v&&v!=='0')p.set(k,v)});CB.forEach(k=>{if($(k).checked)p.set(k,'1')});return p}
@@ -121,10 +132,20 @@ async function loadStats(){
 }
 function fill(id,vals){const el=$(id),cur=el.value,first=el.firstElementChild.outerHTML;el.innerHTML=first+vals.map(v=>`<option>${esc(v)}</option>`).join('');el.value=cur}
 const PAGE=100;let shown=0;
+function chips(l){const d=l.details||{};const out=[];
+  if(l.kind==='prospect'){if(d.rating)out.push(`⭐ ${d.rating} (${d.reviews})`);if(d.gaps&&d.gaps.length)out.push('gap: '+d.gaps.join(', '));if(d.phone)out.push('☎ '+d.phone)}
+  if(d.company&&l.kind!=='prospect')out.push('🏢 '+d.company);
+  if(d.pay_type)out.push(d.pay_type);if(d.hours)out.push(d.hours);if(d.duration)out.push(d.duration);if(d.deadline)out.push('⏰ '+d.deadline);
+  if(d.experience)out.push(d.experience);if(d.volume)out.push(d.volume);if(d.timezone)out.push(d.timezone);
+  (d.tech||[]).slice(0,5).forEach(t=>out.push('#'+t));
+  const links=[];if(d.website)links.push(`<a href="${esc(safeUrl(d.website))}" target="_blank" rel="noopener noreferrer">website</a>`);
+  const so=(d.site&&d.site.socials)||d.socials||{};Object.entries(so).slice(0,3).forEach(([k,v])=>links.push(`<a href="${esc(safeUrl(v))}" target="_blank" rel="noopener noreferrer">${esc(k)}</a>`));
+  const emails=(d.site&&d.site.emails)||[];
+  return (out.length?`<div class="row" style="margin-top:6px">${out.map(x=>`<span class="chip2">${esc(x)}</span>`).join('')}</div>`:'')+(links.length||emails.length?`<div class="meta">${links.join(' · ')}${emails.length?` <span>✉ ${esc(emails.slice(0,2).join(', '))}</span>`:''}</div>`:'')}
 function card(l){return `
   <div class="lead ${l.score>=HOT?'hot':''} ${selected.has(l.id)?'sel':''}" data-id="${esc(l.id)}">
     <div class="top"><input type="checkbox" class="pick" ${selected.has(l.id)?'checked':''} aria-label="select">
-      <div class="score ${l.score>=HOT?'hot':''}">${l.score}</div>
+      <div><div class="score ${l.score>=HOT?'hot':''}">${l.score}</div>${l.grade?`<div style="text-align:center;margin-top:3px"><span class="grade g${l.grade}">${l.grade}</span></div>`:''}</div>
       <div style="flex:1;min-width:0">
         <a class="title" href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title)}</a>
         <div class="meta"><span>${esc(l.platform)}</span><span>${l.lead_type==='job'?'job opening':'buyer post'}</span>
@@ -133,6 +154,8 @@ function card(l){return `
           ${l.budget_text?`<span class="budget">${esc(l.budget_text)}</span>`:''}</div>
         <div class="row" style="margin-top:6px">${l.categories.map(c=>`<span class="tag">${esc(c.replace('_',' '))}</span>`).join('')}${l.ai_verdict==='buyer'?'<span class="tag ai">AI ✓ buyer</span>':''}</div>
         ${l.ai_summary?`<div class="summary">🤖 ${esc(l.ai_summary)}</div>`:''}
+        ${chips(l)}${l.next_action?`<div class="next">👉 ${esc(l.next_action)}</div>`:''}
+        ${l.reasons&&l.reasons.length?`<details class="why"><summary>Why ${l.score}?</summary>${l.reasons.map(r=>`<div>${esc(r)}</div>`).join('')}</details>`:''}
       </div></div>
     <div class="text">${esc(l.text)}</div>
     ${l.contact?`<div class="contact">📬 ${esc(l.contact)}</div>`:''}
@@ -195,6 +218,16 @@ async function openDraft(id){
 }
 $('dcopy').onclick=async()=>{try{await navigator.clipboard.writeText($('dtext').value);$('dcopy').textContent='Copied ✓'}catch{$('dtext').select()}setTimeout(()=>$('dcopy').textContent='Copy',1500)};
 $('dclose').onclick=()=>$('dlg').close();
+// ---- copilot (Parlant)
+let copSession='';
+function copAdd(who,text){const d=document.createElement('div');d.style.cssText='white-space:pre-wrap;padding:8px 10px;border-radius:8px;background:'+(who==='you'?'var(--bg)':'var(--card)')+';border:1px solid var(--line)';d.textContent=(who==='you'?'You: ':'Copilot: ')+text;$('copmsgs').appendChild(d);d.scrollIntoView()}
+$('copilotbtn').onclick=()=>{$('cop').showModal();$('copin').focus()};
+$('copclose').onclick=()=>$('cop').close();
+async function copSend(){const m=$('copin').value.trim();if(!m)return;$('copin').value='';copAdd('you',m);$('copsend').disabled=true;
+  try{const r=await fetch('/api/copilot/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m,session_id:copSession})});const j=await r.json();
+    if(j.session_id)copSession=j.session_id;copAdd('bot',j.error||j.reply||(j.pending?'Still thinking, ask again in a moment.':'(no reply)'))}
+  catch(e){copAdd('bot','Could not reach the copilot.')}$('copsend').disabled=false}
+$('copsend').onclick=copSend;$('copin').addEventListener('keydown',e=>{if(e.key==='Enter')copSend()});
 // ---- saved filters
 async function loadSaved(){
   const fs=await (await fetch('/api/filters')).json();

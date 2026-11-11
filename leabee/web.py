@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import threading
 from datetime import datetime
@@ -13,6 +14,13 @@ from .jobs import run_cycle
 from .outreach import draft
 from .pipeline import ALL_SOURCES
 from .storage import STATUSES, Store
+
+
+def _loads(v):
+    try:
+        return json.loads(v) if v else {}
+    except ValueError:
+        return {}
 
 
 def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: bool = False) -> Flask:
@@ -46,6 +54,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             q=a.get("q", "").strip(), has_contact=a.get("contact") == "1",
             since_hours=float(a.get("since_hours", 0) or 0), sort=a.get("sort", "score"),
             language=a.get("language", ""), ai=a.get("ai", ""), follow_due=a.get("follow_due") == "1",
+            grade=a.get("grade", ""), kind=a.get("kind", ""),
         )
 
     @app.get("/")
@@ -73,7 +82,25 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
         for r in rows:
             r["categories"] = [c for c in (r["categories"] or "").split(",") if c]
             r["text"] = (r["text"] or "")[:1200]
+            r["details"] = _loads(r.get("details"))
+            r["components"] = _loads(r.get("components"))
+            r["reasons"] = [x for x in (r.get("reasons") or "").split(" | ") if x]
         return jsonify(total=total, leads=rows)
+
+    @app.post("/api/copilot/ask")
+    def copilot_ask():
+        from .copilot.client import ask
+        body = request.get_json(silent=True) or {}
+        msg = str(body.get("message", "")).strip()
+        if not msg:
+            return jsonify(error="message required"), 400
+        res = ask(msg, str(body.get("session_id", "")))
+        return jsonify(res), (503 if res.get("error") else 200)
+
+    @app.get("/api/tools")
+    def tools():
+        from .extractors import status
+        return jsonify(status())
 
     @app.get("/api/stats")
     def stats():

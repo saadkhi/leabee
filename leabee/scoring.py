@@ -38,7 +38,8 @@ JOBLIST_RE = re.compile(r"\b\d{1,3}\+?\s+(?:remote\s+|new\s+|fresh\s+|latest\s+)
                         r"zerotaxjobs|\btax-free!|\bsalary guide:|apply (?:&|and) more details", I)
 
 # Roles that are not a service you sell: sales, recruiting, commission-only, affiliates.
-NONSERVICE_ROLE = re.compile(r"\b(?:sales (?:partner|rep|representative|development|manager|executive|associate)|sdrs?|bdr|business developer|"
+NONSERVICE_ROLE = re.compile(r"\b(?:founding (?:sales|ae|account executive)|\(founding ae\)|operations? (?:lead|manager)|product manager|academic dean|"
+                             r"sales (?:partner|rep|representative|development|manager|executive|associate)|sdrs?|bdr|business developer|"
                              r"closers?|account executive|recruiter|talent partner|commission[- ]only|affiliate (?:manager|partner)|"
                              r"customer success|renewals? associate|customer (?:service|support|care) (?:rep\w*|specialist|agent|associate)|(?:live )?technical support rep\w*|"
                              r"help ?desk|call cent(?:er|re)|business development specialist|interviewer|head of editorial)\b", I)
@@ -58,12 +59,13 @@ OFFTOPIC_RE = re.compile(r"\[\s*[mfw]\s*4\s*[mfwr]\s*\]|\b(?:looking for (?:his|
 HN_CANDIDATE_RE = re.compile(r"\bwilling to relocate\b|\bresume\s*/?\s*cv\s*:|^\s*seeking work\b", I | re.M)
 HN_PROFILE_RE = re.compile(r"^\s*location:", I | re.M)       # + "Technologies:" below = a candidate profile, not a client
 
-PARTNER_RE = re.compile(r"\bco-?founders?\b|\bco-?developers?\b|\bbusiness partners?\b|\bpartners? (?:to|for) (?:grow|build|launch|join)\b|"
+PARTNER_RE = re.compile(r"\bresell\w*|\bwhite[- ]label\b|\bco-?founders?\b|\bco-?developers?\b|\bbusiness partners?\b|\bpartners? (?:to|for) (?:grow|build|launch|join)\b|"
                         r"\bequity[- ]only\b|\bsweat equity\b|\brevenue[- ]share only\b|\b(?:build|make|create) (?:it|this|something) with\b|"
                         r"\bjoin me (?:to|in|and)\b|\bearly[- ]stage founders\b|\bvolunteers?\b|\bunpaid\b|\bno pay\b|\bpassion project\b|"
                         r"\bfor (?:free|exposure|credit)\b|\bcollaboration opportunit\w+|\bcollab\b", I)
 
-PROMO_RE = re.compile(r"\b(?:beta testers?|early (?:access|adopters?)|test my (?:app|tool|platform|product)|free (?:to use|for (?:website )?owners)|"
+PROMO_RE = re.compile(r"\b(?:make extra money|earn up to|limited spots|paid research|\d{1,2} (?:proven )?(?:tips|ways|reasons|mistakes|things)|"
+                      r"feedback on pricing|my tool|our tool|beta testers?|early (?:access|adopters?)|test my (?:app|tool|platform|product)|free (?:to use|for (?:website )?owners)|"
                       r"use my (?:\w+\s+){0,3}(?:platform|tool|app|software)|waitlist|feedback on my (?:app|site|website|product|tool)|"
                       r"launching (?:a |my )?(?:paid )?beta|upvote|sign ?up (?:for|to) (?:my|our)|check out my|"
                       r"i work (?:at|for|with) (?:a|an)\b|\bhow we sell\b|\b(?:get|ask for) (?:these|this) in writing\b|\bred flags?\b|"
@@ -94,7 +96,7 @@ ADVICE_RE = re.compile(r"\b(?:advice|tips?|best practices?|where (?:do i|to|shou
                        r"can someone explain|need (?:some )?(?:help|advice|ideas|tips|feedback) (?:with|on|getting|understanding|figuring|to)|"
                        r"need (?:some )?(?:help|advice|ideas)\b(?!\s+(?:building|developing|hiring|finding|with (?:a |my )?(?:project|build|website|app|automation)))|"
                        r"are there any good|which (?:one|tool|framework|platform)|why (?:is|does|do|won'?t|isn'?t)|what should i|should i|"
-                       r"founders who|has anyone|did anyone|how many of you|who else|anyone else|am i the only|curious (?:how|what|if)|"
+                       r"has anyone interviewed|hiring process|is it worth the time|founders who|has anyone|did anyone|how many of you|who else|anyone else|am i the only|curious (?:how|what|if)|"
                        r"do i (?:spend|hire|need|really|pay)|should (?:i|we) hire|is it worth (?:hiring|paying)|torn|would appreciate (?:some )?advice|any advice|"
                        r"what (?:customer|problem|mistake|lesson|tool)s?\b|what do you (?:think|use)|your (?:experience|thoughts)|"
                        r"not working|doesn'?t work|isn'?t working|missing (?:parts|text)|approval|rejected|rate my|roast my|review my)\b", I)
@@ -126,12 +128,13 @@ EMPLOYMENT_CUE = re.compile(r"\b(?:full[- ]?time|permanent|salary|salaried|benef
                             r"years? of experience (?:required|in|with)|\d\+?\s*years?|join our (?:growing |amazing |awesome )?team|"
                             r"to join (?:our|the) team|apply (?:now|today|here|at)|send (?:your )?(?:cv|resume)|responsibilities|qualifications|"
                             r"requirements|position:|job type|remote job|vacanc\w+|career opportunity|we offer|what we offer|about the role)\b", I)
-EMPLOYMENT_STRONG = re.compile(r"\b(?:salary|salaried|benefits|401\s?\(?k\)?|pto|paid time off|health insurance|stock options|equity|"
+EMPLOYMENT_STRONG = re.compile(r"\b(?:work authori[sz]ation|sponsorship|visa sponsor\w*|junior to mid|salary|salaried|benefits|401\s?\(?k\)?|pto|paid time off|health insurance|stock options|equity|"
                                r"join our (?:growing |amazing |awesome )?team|to join (?:our|the) team|apply (?:now|today|here|at)|"
                                r"send (?:your )?(?:cv|resume)|position:|job type|remote job|vacanc\w+|"
                                r"career opportunity|we offer|what we offer|about the role|years? of experience (?:required|in|with)|"
                                r"join us|per year|/\s?(?:yr|year)|annually|annual salary|roles? (?:only )?available|full[- ]?time (?:role|position|job))\b|"
                                r"[$€£]\s?\d{2,3}(?:,\d{3}|\s?k)\s*[-–]\s*[$€£]?\s?\d{2,3}(?:,\d{3}|\s?k)(?!\s*/?\s*(?:hr|hour|h\b|per hour))", I)
+SENIORITY_TITLE = re.compile(r"\b(?:senior|sr\.?|staff|principal|tech leads?|team lead|lead (?:engineer|developer|designer)|head of|director|founding|vp of|manager)\b", I)
 FULLTIME_TITLE = re.compile(r"\bfull[- ]?time\b|\bpermanent\b", I)
 HIRING_HEADER = re.compile(r"^\W*(?:we(?:'|’)?re|we are)\s+hiring\b|^\W*hiring for\b", I)
 
@@ -236,8 +239,10 @@ def classify_kind(item, title: str, text: str, buy_strong: int, intent: str, int
     hourly = bool(re.search(r"/\s?(?:hr|hour)\b|\bper hour\b|\bhourly\b", head, I))
     fulltime_title = bool(FULLTIME_TITLE.search(title))
     wants_fulltime = bool(re.search(r"\bwe(?:'re| are)\b[^.\n]{0,20}(?:looking for|hiring|seeking) (?:a |an )?full[- ]?time\b", text[:500], I))
-    if fulltime_title and not gig_title and not re.search(r"\bpart[- ]?time\b", title, I):
-        return "role", ["employee job ad (full-time in the title)"], ev
+    if fulltime_title and not re.search(r"\b(?:freelanc\w+|part[- ]?time|per (?:clip|video|article|task|project))\b|\[\s*task\s*\]", title, I):
+        return "role", ["employee job ad (full-time in the title)"], ev          # "Contract or Full Time", "Full-time contractor" are jobs
+    if SENIORITY_TITLE.search(title) and not gig_title and not gig_body:
+        return "role", ["employee job ad (senior / lead role)"], ev
     if wants_fulltime and not gig_title:
         return "role", ["employee job ad (asks for a full-time hire)"], ev
     if gig_title or (ev["tag"] and re.search(r"\[\s*task\s*\]", title, I)):
@@ -374,6 +379,8 @@ def next_action(item, kind: str, contacts: list[str], score: int) -> str:
         first = contacts[0]
         if "@" in first and ":" not in first:
             return f"Email {first} now with a tailored reply"
+        if first.startswith("http"):
+            return "Use their booking / contact link"
         return f"Message them directly ({first.split(':')[0]})"
     if is_marketplace(plat):
         return f"Send a tailored proposal on {plat}"

@@ -100,3 +100,45 @@ def run(cfg: dict, paths: list[str] | None = None, threshold: int = 60, show_err
         if show_errors:
             out += ["  mistakes at score>=%d:" % threshold] + ["    " + e for e in errors(pred, threshold)]
     return "\n".join(out)
+
+
+def sample_blind(cfg: dict, raw_paths: list[str], exclude_paths: list[str], out_path: str, keep: int = 30, near: int = 20, rest: int = 10,
+                 seed: int = 31) -> list[str]:
+    """Draw a fresh sample from raw (unfiltered) items for hand labelling. Items in exclude_paths are skipped. Writes label "?" rows to
+    out_path and returns printable lines that show ONLY the posts (never the scorer's verdict), so labels stay unbiased."""
+    import random
+    import re
+
+    from .classify import detect_categories
+
+    seen = set()
+    for f in exclude_paths:
+        seen |= {r["url"] for r in json.loads(Path(f).read_text(encoding="utf-8"))["rows"]}
+    rows, urls = [], set()
+    for path in raw_paths:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if d["url"] in seen or d["url"] in urls or not d["title"]:
+                continue
+            urls.add(d["url"])
+            rows.append({"label": "?", "source": d["source"], "platform": d["platform"], "lead_type": d["lead_type"], "title": d["title"], "text": d["text"],
+                         "url": d["url"], "author": d.get("author", ""), "author_url": d.get("author_url", ""), "posted_at": d["posted_at"],
+                         "country": d.get("location_hint", "")})
+    now = "2026-11-10T12:00:00+00:00"
+    pred = predict(rows, cfg, now)
+    kept = [p for p in pred if p["kept"] and p["score"] >= 35]
+    nearmiss = [p for p in pred if not p["kept"] and detect_categories(p["title"] + " " + p["text"][:500]) and
+                re.search(r"hir|looking for|need|wanted|seeking|budget|paid|freelanc|contract", p["title"] + " " + p["text"][:300], re.I)]
+    other = [p for p in pred if not p["kept"] and p not in nearmiss]
+    rnd = random.Random(seed)
+    for g in (kept, nearmiss, other):
+        rnd.shuffle(g)
+    pick = kept[:keep] + nearmiss[:near] + other[:rest]
+    rnd.shuffle(pick)
+    keys = ("label", "source", "platform", "lead_type", "title", "text", "url", "author", "author_url", "posted_at", "country")
+    out = [{k: p[k] for k in keys} for p in pick]
+    Path(out_path).write_text(json.dumps({"eval_now": now, "rows": out}, ensure_ascii=False, indent=1), encoding="utf-8")
+    return [f"{i:3}|{o['platform'][:8]:8}|{o['title'][:78]}|| {' '.join(o['text'].split())[:170]}" for i, o in enumerate(out)]

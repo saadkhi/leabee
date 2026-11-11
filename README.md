@@ -111,16 +111,71 @@ Match regions for speed: Neon in `us-east` pairs with Vercel's default region. T
 `leabee/serverless.py`), and `python -m leabee publish` can commit that snapshot to a **private** repo. `python -m leabee backup`
 pulls a local SQLite copy of the Neon database.
 
-## How leads are judged
+## How leads are judged (scoring v2)
 
-* **Buyer vs seller**: "looking for a developer / need someone to build / [HIRING] / willing to pay…" count; "[FOR HIRE] / I will build / my services /
-  looking for work…" are discarded. Job seekers, showcases, tutorials and on-site jobs are discarded.
-* **Service match**: 16 categories (web, mobile, custom software, automation, AI, content, design, marketing/SEO, data, video, VA, devops, …).
-* **Score** = intent (≤40) + service match (≤20) + freshness (≤20) + budget (≤10) + contact (≤5) + owner/urgency hints.
-  Job openings are capped at 88 and contract/freelance roles score higher than full-time ones.
-* Budget, contact details (public emails, Telegram, WhatsApp, Discord, booking links) and country are extracted automatically.
+**Step 1: what is this post?** Only real client gigs are scored. Everything else is dropped with a reason: employee job ads
+(`role`, unless `keep_roles: true`), sellers, job seekers, advice/discussion posts, filled posts, co-founder/unpaid requests,
+promotions, job lists, aggregator spam, recruiter/talent-network pages, sales and customer-service roles, homework.
+Outbound businesses from Google Maps are `prospect`s with their own rules.
 
-Tune everything in `config.yaml` (subreddits, queries, languages, `min_score`, `max_age_days`).
+**Step 2: score 0-100, five parts, every point explained** (click "Why 82?" on a lead):
+
+| Part | Max | Meaning |
+|---|---|---|
+| Intent | 35 | how explicit and paid the request is (marketplace project, [HIRING]/[TASK], clear hire phrases, pay signal) |
+| Fit | 25 | names a service and concrete skills; uses your `profile:` (services, skills, avoid, languages, countries) |
+| Value | 15 | stated budget or rate, ongoing or high-volume work |
+| Reach | 15 | direct contact (email, WhatsApp, Telegram, booking link) beats "reply on the platform" |
+| Freshness | 10 | recent posts win (post time is also read from "posted Nov 3" and "4d ago" text) |
+
+Grades: **A** 80+ reply now, **B** 65-79 strong, **C** 50-64 worth a look, **D** below 50. Each lead also gets a plain-language **next action**
+and structured **details** (company, website, pay type, hours, duration, deadline, experience, tech stack, volume, timezone).
+Set your `profile:` in `config.yaml` to make scoring specific to what you sell.
+
+### Measured accuracy (hand-labelled, never committed)
+`python -m leabee eval` re-scores hand-labelled posts in `data/eval/*.json` (git-ignored, they contain real people's posts).
+`python -m leabee dump-raw` collects raw feeds and `python -m leabee eval-sample` draws a fresh blind sample to label.
+Results with the current rules, at score >= 50 (precision = share of returned leads that are real buyers):
+
+| Set | Posts | Real buyers | Precision | Recall |
+|---|---|---|---|---|
+| A (used for tuning) | 100 | 42 | 97% | 88% |
+| B, C (seen during tuning) | 100 / 80 | 13 / 21 | 80% / 81% | 92% / 81% |
+| D (first measured blind: 39% precision, then fixed) | 60 | 13 | 65% | 85% |
+
+Treat 65-80% as the realistic precision on unseen raw feeds at grade C; grade B and above is cleaner. Raw feeds are mostly job ads and noise.
+
+## Extractors and tools (maximum detail, cheapest first)
+
+`python -m leabee tools` shows what is ready. Order: plain HTTP, then **Crawl4AI** (free local browser; set `LEABEE_BROWSER_CHANNEL=msedge` or
+`chrome` to reuse the browser you already have), then TinyFish Fetch, then AI browser agents as a last resort (opt-in with `extractors.use_agents`):
+**AgentQL** (`AGENTQL_API_KEY`), **Browser Use** (`pip install 'browser-use==1.0.0'` + `ANTHROPIC_API_KEY`), **Skyvern** (`pip install skyvern` +
+`SKYVERN_API_KEY`), **Stagehand** (`pip install stagehand` + `ANTHROPIC_API_KEY`). The four agent adapters follow each project's documented API and are
+unit-tested with fake SDKs; they have not been run live without your keys. Agents never log in, submit forms or send messages. Every fetched URL passes an
+SSRF guard (public http(s) addresses only).
+`python -m leabee enrich-sites` crawls the company website of top leads for verified emails, phones and socials (also runs inside every collection).
+
+## Google Maps prospects
+
+The omkarcloud **Google Maps Extractor** is a *desktop app* (download from omkar.cloud, free account, 200 searches a month) with a local API on
+port 8000; its GitHub repo only holds docs. Either start the app and list searches under `gmaps.searches` in `config.yaml`, or drop its CSV/JSON
+exports into `data/maps/` (or `python -m leabee import-maps FILE`). Businesses are scored as prospects: **Need** (no website, weak reviews, unclaimed
+listing), **Fit** (category), **Value** (reviews), **Reach** (email/phone), **Signal**. If your app's API input fields differ, set `gmaps.task_template`.
+Note: scraping Google Maps is against Google's terms and cold outreach is regulated (GDPR, CAN-SPAM, CASL); keep volumes modest and outreach relevant.
+
+## Replies, alerts, digest, copilot
+
+* **AI-written replies**: with `ANTHROPIC_API_KEY`, the Draft button writes from the lead's own words and your `profile:` (name, pitch, portfolio_url, rate);
+  otherwise templates. Prospects get a pitch about their specific gap. Nothing is ever sent automatically.
+* **Telegram**: new hot leads arrive one per message with Draft / Contacted / Ignore buttons. Run `python -m leabee bot` to make the buttons work
+  (and `/top`, `/stats`, `/due`); only your `TELEGRAM_CHAT_ID` is answered.
+* **Digest**: `python -m leabee digest` (daily workflow in `.github/workflows/digest.yml`) sends top new leads and due follow-ups to your alert channels.
+* **Tenders**: UK Contracts Finder (free, no key) for IT, software, marketing and design tenders.
+* **Copilot (Parlant)**: `pip install "parlant[anthropic]"`, then `python -m leabee copilot` starts a Parlant agent (port 8800) with explicit policies
+  (drafts only, confirm before status changes, stay in scope, no invented data). The dashboard's Copilot button talks to it. It needs `ANTHROPIC_API_KEY` and
+  was not run live here; its tool functions and policies are unit-tested.
+
+Tune everything in `config.yaml` (subreddits, queries, languages, `profile`, `min_score`, `max_age_days`).
 
 ## Responsible use
 

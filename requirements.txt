@@ -3,4 +3,4 @@ PyYAML>=6.0
 Flask>=3.0
 psycopg[binary]>=3.2
 waitress>=3.0
-defusedxml>=0.7
+defusedxml>=0.7.1

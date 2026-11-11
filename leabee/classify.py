@@ -84,7 +84,7 @@ _NEED_OBJ = rf"(?:(?:{_NOUN}\s+)(?:[\w\-\.\+/#&]+\s+){{0,4}}?)?{_ROLE}"
 BUYER_STRONG = [re.compile(p, I) for p in [
     r"\[\s*hiring\s*\]",
     r"\[\s*task\s*\]",
-    rf"(?:^|[\n.!?:;\-–—]\s*)(?:urgently\s+|immediately\s+|asap\s+)?need(?:ed)?\s+{_NEED_OBJ}",
+    rf"(?:^|[\n.!?:;\-\u2013\u2014]\s*)(?:urgently\s+|immediately\s+|asap\s+)?need(?:ed)?\s+{_NEED_OBJ}",
     rf"\b(?:i'?m|i am|we'?re|we are|i'?ve been|currently|still|is)\s+(?:looking|searching|seeking|in need|on the hunt)\b(?!\s+for{_WORK_WORDS})",
     rf"\blooking (?:for|to hire)\b{_NOT_WORK}",
     r"\bsearching for (?:a|an|the|someone|somebody)\b",
@@ -248,10 +248,10 @@ _CUR = r"(?:USD|US\$|\$|EUR|€|GBP|£|INR|₹|CAD|C\$|AUD|A\$|AED|PKR|Rs\.?|BRL
 _NUM = r"\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 BUDGET_RE = re.compile(
     rf"(?P<full>(?P<c1>{_CUR})\s?(?P<n1>{_NUM})\s?(?P<k1>[kKmM])?\b"
-    rf"(?:\s?(?:-|–|—|to)\s?(?:{_CUR})?\s?(?P<n2>{_NUM})\s?(?P<k2>[kKmM])?)?"
+    rf"(?:\s?(?:-|\u2013|\u2014|to)\s?(?:{_CUR})?\s?(?P<n2>{_NUM})\s?(?P<k2>[kKmM])?)?"
     rf"(?P<per>\s?(?:/|per|an?|a)\s?(?:hr|hour|h|month|mo|week|wk|day|project|word|article|page)s?\b)?)", re.I)
 BUDGET_POST_RE = re.compile(
-    rf"(?P<full>(?:(?P<n0>{_NUM})\s?(?:-|–|—|to)\s?)?(?P<n1>{_NUM})\s?(?P<k1>[kK])?\s?(?P<c1>USD|EUR|GBP|INR|CAD|AUD|dollars|euros|pounds|bucks)\b"
+    rf"(?P<full>(?:(?P<n0>{_NUM})\s?(?:-|\u2013|\u2014|to)\s?)?(?P<n1>{_NUM})\s?(?P<k1>[kK])?\s?(?P<c1>USD|EUR|GBP|INR|CAD|AUD|dollars|euros|pounds|bucks)\b"
     rf"(?P<per>\s?(?:/|per|an?|a)\s?(?:hr|hour|h|month|mo|week|wk|day|project|word|article|page)s?\b)?)", re.I)
 BUDGET_WORD_RE = re.compile(r"\b(?:budget|pay(?:ing)?|rate|salary|compensation)\s*(?:is|of|:|around|about|up to|between)?\s*(?:approx\.?|approximately|~)?\s*(\$|€|£)?\s?(\d[\d,\.]*)\s?([kK])?\b", I)
 
@@ -260,7 +260,8 @@ _FX = {"$": 1, "US$": 1, "USD": 1, "dollars": 1, "bucks": 1, "€": 1.08, "EUR":
        "CAD": 0.73, "C$": 0.73, "AUD": 0.65, "A$": 0.65, "AED": 0.27, "BRL": 0.18, "R$": 0.18, "NGN": 0.00065,
        "₦": 0.00065, "ZAR": 0.055, "SGD": 0.74, "JPY": 0.0066, "¥": 0.0066, "CHF": 1.13, "MXN": 0.05, "PHP": 0.017, "₱": 0.017}
 
-EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
+# Bounded quantifiers: an attacker-controlled page with one huge token must not make matching quadratic (ReDoS).
+EMAIL_RE = re.compile(r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,5}\.[A-Za-z]{2,24}")
 _BAD_EMAIL_TAIL = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")
 _BAD_EMAIL_HOST = ("example.com", "example.org", "sentry.io", "wixpress.com", "domain.com", "email.com", "yourdomain.com")
 _BAD_EMAIL_USER = ("noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "postmaster")
@@ -594,7 +595,7 @@ def classify_intent(title: str, text: str, force: str = "") -> tuple[str, int, l
     if buy and sell_title and sell_title >= buy:
         return "seller", 0, reasons
     if buy == 1 and sell_body >= 1 and title.strip().endswith("?"):
-        return "seller", 0, reasons + ["question-title-ad"]   # "LOOKING FOR A DEVELOPER? I can help you build…"
+        return "seller", 0, reasons + ["question-title-ad"]   # "LOOKING FOR A DEVELOPER? I can help you build\u2026"
     if buy == 1 and sell_body >= 2:
         return "seller", 0, reasons
     if buy and sell > buy * 2 + 1:

@@ -1,0 +1,31 @@
+name: Security checks
+
+# Runs on every push and weekly: known-vulnerable dependencies, insecure code patterns, and secrets in the repo.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pip-audit bandit pytest
+      - name: Known vulnerabilities in dependencies
+        run: pip-audit -r requirements.txt
+      - name: Insecure code patterns
+        run: bandit -r leabee -ll -x leabee/templates -s B608,B113   # B608: SQL uses fixed fragments + ? placeholders (see tests/test_security.py); B113: calls do set timeouts
+      - name: Secrets in the repository
+        run: python -m leabee audit
+      - name: Tests
+        run: python -m pytest -q

@@ -123,7 +123,7 @@ GIG_BODY = re.compile(r"\b(?:this is an? (?:freelance|contract|part[- ]time|proj
                       r"(?:role|position|basis|opportunity|work|engagement|writer|developer|designer|editor|project)|independent contractor|1099|"
                       r"contractor role|looking for (?:a |an )?freelanc\w+|seeking (?:a |an )?freelanc\w+|per (?:clip|video|article|task|project)|"
                       r"(?:one|single)[- ]time (?:task|project|job))\b|\(\s*(?:contract|freelance|part[- ]time)\s*\)|"
-                      r"[,|/(\-–]\s*(?:freelance|contract(?:or)?|part[- ]time)\b", I)
+                      r"[,|/(\-\u2013]\s*(?:freelance|contract(?:or)?|part[- ]time)\b", I)
 EMPLOYMENT_CUE = re.compile(r"\b(?:full[- ]?time|permanent|salary|salaried|benefits|401\s?\(?k\)?|pto|paid time off|health insurance|equity|stock options|"
                             r"years? of experience (?:required|in|with)|\d\+?\s*years?|join our (?:growing |amazing |awesome )?team|"
                             r"to join (?:our|the) team|apply (?:now|today|here|at)|send (?:your )?(?:cv|resume)|responsibilities|qualifications|"
@@ -133,10 +133,10 @@ EMPLOYMENT_STRONG = re.compile(r"\b(?:work authori[sz]ation|sponsorship|visa spo
                                r"send (?:your )?(?:cv|resume)|position:|job type|remote job|vacanc\w+|"
                                r"career opportunity|we offer|what we offer|about the role|years? of experience (?:required|in|with)|"
                                r"join us|per year|/\s?(?:yr|year)|annually|annual salary|roles? (?:only )?available|full[- ]?time (?:role|position|job))\b|"
-                               r"[$€£]\s?\d{2,3}(?:,\d{3}|\s?k)\s*[-–]\s*[$€£]?\s?\d{2,3}(?:,\d{3}|\s?k)(?!\s*/?\s*(?:hr|hour|h\b|per hour))", I)
+                               r"[$€£]\s?\d{2,3}(?:,\d{3}|\s?k)\s*[-\u2013]\s*[$€£]?\s?\d{2,3}(?:,\d{3}|\s?k)(?!\s*/?\s*(?:hr|hour|h\b|per hour))", I)
 SENIORITY_TITLE = re.compile(r"\b(?:senior|sr\.?|staff|principal|tech leads?|team lead|lead (?:engineer|developer|designer)|head of|director|founding|vp of|manager)\b", I)
 FULLTIME_TITLE = re.compile(r"\bfull[- ]?time\b|\bpermanent\b", I)
-HIRING_HEADER = re.compile(r"^\W*(?:we(?:'|’)?re|we are)\s+hiring\b|^\W*hiring for\b", I)
+HIRING_HEADER = re.compile(r"^\W*(?:we(?:'|\u2019)?re|we are)\s+hiring\b|^\W*hiring for\b", I)
 
 # ----------------------------------------------------------------------------- specific skills = concrete requests
 SKILL_RE = re.compile(

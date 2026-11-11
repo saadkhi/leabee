@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from flask import Flask, Response
@@ -22,7 +23,7 @@ from .config import ROOT, load_config
 from .storage import Store, database_url
 
 SNAPSHOT = ROOT / "vercel_data" / "leads.sqlite"
-TMP_DB = Path(os.environ.get("TMPDIR", "/tmp")) / "leabee-leads.db"
+TMP_DB = Path(tempfile.gettempdir()) / "leabee-leads.db"
 
 
 def _message_app(text: str, status: int = 503) -> Flask:
@@ -38,9 +39,14 @@ def _message_app(text: str, status: int = 503) -> Flask:
 def build_app() -> Flask:
     from .web import create_app
 
-    if not os.environ.get("LEABEE_PASSWORD"):
+    if not (os.environ.get("LEABEE_PASSWORD") or os.environ.get("LEABEE_PASSWORD_HASH")):
         return _message_app("Set LEABEE_PASSWORD in the Vercel project's Environment Variables, then redeploy. "
                             "Leabee will not serve lead data without a password.")
+    from .security import configured_secret, password_problem
+    plain, hashed = configured_secret()
+    if not hashed and password_problem(plain):
+        return _message_app(f"LEABEE_PASSWORD is not acceptable ({password_problem(plain)}). Use 12+ random characters, or set LEABEE_PASSWORD_HASH "
+                            "(create one with: python -m leabee hash-password).")
     cfg = load_config()
 
     url = database_url()

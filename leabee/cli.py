@@ -15,6 +15,8 @@ def _setup_logging(verbose: bool) -> None:
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    from .security import install_log_redaction
+    install_log_redaction()                      # tokens in URLs or error text never reach logs
 
 
 def _print_leads(rows, limit=25):
@@ -82,6 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     fd.add_argument("-n", type=int, default=None)
     fd.add_argument("--save", action="store_true", help="save the results as prospects in your pipeline")
     fd.add_argument("--csv", default="", help="also write the results to this CSV file")
+    au = sub.add_parser("audit", help="security check of your setup and a scan for committed secrets")
+    au.add_argument("--host", default="127.0.0.1", help="the host you run `serve` on (changes how strict the checks are)")
+    au.add_argument("--staged", action="store_true", help="only scan the lines about to be committed (used by the pre-commit hook)")
+    au.add_argument("--online", action="store_true", help="also check whether the GitHub repository is public")
+    sub.add_parser("hash-password", help="create a LEABEE_PASSWORD_HASH so the plain password is never stored")
     sub.add_parser("copilot", help="run the Parlant sales copilot server (needs parlant and OPENROUTER_API_KEY)")
     sub.add_parser("bot", help="run the Telegram bot (buttons on alerts, /top /stats /due)")
     sub.add_parser("digest", help="send the daily digest to your alert channels")
@@ -203,6 +210,29 @@ def main(argv: list[str] | None = None) -> int:
         if a.save:
             print(save_to_pipeline(store, cfg, res["businesses"]))
         return 0
+    if a.cmd == "audit":
+        from .audit import report, run as run_audit, scan_staged
+        if a.staged:
+            hits = scan_staged()
+            for f, kind in hits:
+                print(f"BLOCKED: possible {kind} in {f}", file=sys.stderr)
+            return 1 if hits else 0
+        text, code = report(run_audit(a.host, a.online))
+        print(text)
+        return code
+    if a.cmd == "hash-password":
+        import getpass
+        from .security import hash_password, password_problem
+        pw = getpass.getpass("New dashboard password (12+ characters): ")
+        problem = password_problem(pw)
+        if problem:
+            print(problem, file=sys.stderr)
+            return 2
+        if getpass.getpass("Repeat it: ") != pw:
+            print("passwords differ", file=sys.stderr)
+            return 2
+        print("Put this in .env / Vercel and remove LEABEE_PASSWORD:\nLEABEE_PASSWORD_HASH=" + hash_password(pw))
+        return 0
     if a.cmd == "copilot":
         from .copilot.agent import run as run_copilot
         run_copilot()
@@ -303,8 +333,18 @@ def main(argv: list[str] | None = None) -> int:
         if every:
             Scheduler(cfg, store, every, partial=bool(sched.get("partial", True)), log_sink=app.config["state_say"]).start()
             print(f"Auto-collect every {every:g} min")
+        from .security import LOOPBACK, configured_secret, password_problem
+        plain, hashed = configured_secret()
+        if a.host not in LOOPBACK and not hashed and password_problem(plain):
+            print(f"Refusing to listen on {a.host}: set a strong LEABEE_PASSWORD (12+ characters) or LEABEE_PASSWORD_HASH first "
+                  f"({password_problem(plain) or 'no password set'}).", file=sys.stderr)
+            return 2
         print(f"Dashboard: http://{a.host}:{a.port}")
-        app.run(host=a.host, port=a.port, threaded=True, debug=False)
+        try:
+            from waitress import serve as wsgi_serve              # production-grade server when installed
+            wsgi_serve(app, host=a.host, port=a.port, threads=8, max_request_body_size=1_000_000)
+        except ImportError:
+            app.run(host=a.host, port=a.port, threaded=True, debug=False)
         return 0
     if a.cmd == "watch":
         srcs = [s.strip() for s in a.sources.split(",") if s.strip()]

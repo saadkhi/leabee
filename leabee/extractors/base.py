@@ -36,6 +36,16 @@ class PageResult:
     error: str = ""
 
 
+def is_public_ip(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if getattr(a, "ipv4_mapped", None):
+        a = a.ipv4_mapped
+    return not (a.is_private or a.is_loopback or a.is_link_local or a.is_reserved or a.is_multicast or a.is_unspecified)
+
+
 def is_public_url(url: str) -> bool:
     """SSRF guard: only http(s) to public internet addresses. Lead URLs come from scraped content, so never trust them."""
     try:
@@ -47,8 +57,7 @@ def is_public_url(url: str) -> bool:
             return False
         infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
         for info in infos:
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            if not is_public_ip(info[4][0]):
                 return False
         return True
     except (ValueError, OSError):
@@ -109,7 +118,7 @@ def parse_html(url: str, html: str) -> PageResult:
             continue
         links.append(h if h.lower().startswith(("mailto:", "tel:")) else urljoin(url, h))
     body = re.sub(r"(?is)<(script|style|noscript|svg)\b.*?</\1>", " ", html or "")
-    text = strip_html(body)
+    text = strip_html(body)[:200_000]                  # cap what the regexes below have to scan
     mailtos = [h[7:].split("?")[0] for h in links if h.lower().startswith("mailto:")]
     tels = [re.sub(r"[^\d+]", "", h[4:]) for h in links if h.lower().startswith("tel:")]
     emails = find_emails(" ".join(mailtos) + " " + text)

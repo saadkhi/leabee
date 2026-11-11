@@ -4,10 +4,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
+from .. import security as sec
 from ..outreach import draft
 from ..storage import STATUSES, Store
 
 GRADE_MIN = {"A": 80, "B": 65, "C": 50, "D": 0}
+_STATUS_LIMITER = sec.RateLimiter()          # a manipulated chat cannot mass-edit your pipeline
 
 
 def _brief(l: dict) -> dict:
@@ -31,7 +33,7 @@ def lead_details(store: Store, lead_id: str) -> dict:
     except ValueError:
         details = {}
     return {**_brief(l), "why": [x for x in (l.get("reasons") or "").split(" | ") if x], "details": details,
-            "post": (l.get("text") or "")[:1200], "notes": l.get("notes") or ""}
+            "post": sec.untrusted(l.get("text") or "", 1200), "notes": l.get("notes") or ""}
 
 
 def draft_reply(store: Store, cfg: dict, lead_id: str) -> dict:
@@ -49,6 +51,8 @@ def set_lead_status(store: Store, lead_id: str, status: str, follow_up_days: int
         return {"error": "No single lead matches that id."}
     if status not in STATUSES:
         return {"error": f"status must be one of {', '.join(STATUSES)}"}
+    if not _STATUS_LIMITER.allow("status", 5, 60)[0]:
+        return {"error": "Status change limit reached (5 per minute). Use the dashboard for bulk changes."}
     fu = (datetime.now() + timedelta(days=int(follow_up_days))).strftime("%Y-%m-%d") if follow_up_days else None
     store.update_user_fields(l["id"], status=status, follow_up=fu)
     return {"ok": True, "lead": l["title"][:100], "status": status, "follow_up": fu or l.get("follow_up") or ""}

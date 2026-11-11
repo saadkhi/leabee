@@ -49,7 +49,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:left;p
     <div class="card" style="grid-column:1/-1"><h2>Recent collection runs</h2><div id="runs"></div></div>
   </div>
 </main>
-<script>
+<script nonce="{{ csp_nonce }}">
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nice=s=>String(s).replace(/_/g,' ');
 function bars(id,rows,param,label=nice){

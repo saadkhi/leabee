@@ -6,6 +6,7 @@ Needs on the Vercel project:  GITHUB_DISPATCH_TOKEN  (fine-grained token, repo "
 from __future__ import annotations
 
 import os
+import re
 
 import requests
 
@@ -13,12 +14,15 @@ WORKFLOW = "refresh.yml"
 API = "https://api.github.com"
 
 
+_REPO = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+
+
 def repo() -> str:
     r = os.environ.get("GITHUB_REPO", "").strip()
-    if r:
-        return r
-    owner, slug = os.environ.get("VERCEL_GIT_REPO_OWNER", ""), os.environ.get("VERCEL_GIT_REPO_SLUG", "")
-    return f"{owner}/{slug}" if owner and slug else ""
+    if not r:
+        owner, slug = os.environ.get("VERCEL_GIT_REPO_OWNER", ""), os.environ.get("VERCEL_GIT_REPO_SLUG", "")
+        r = f"{owner}/{slug}" if owner and slug else ""
+    return r if _REPO.match(r) and ".." not in r else ""          # never let odd values reach the URL path
 
 
 def _headers() -> dict:

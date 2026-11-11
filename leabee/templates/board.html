@@ -29,7 +29,7 @@ a.btn{color:var(--ink);text-decoration:none;border:1px solid var(--line);border-
 <body>
 <header><h1>🐝 Pipeline board</h1><span style="color:var(--mute)">Drag cards between columns · top 60 per column</span><div><a class="btn" href="/">← Leads</a> <a class="btn" href="/insights">Dashboard</a></div></header>
 <div class="cols" id="cols"></div>
-<script>
+<script nonce="{{ csp_nonce }}">
 const STATUSES={{ statuses|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl=u=>/^https?:\/\//i.test(u)?u:'#';

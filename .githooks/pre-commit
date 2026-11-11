@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks a commit that contains an API key, token or database password.
+# Enable once with:  git config core.hooksPath .githooks
+python -m leabee audit --staged || { echo "Commit blocked: remove the secret (use .env or a secret store) and try again."; exit 1; }

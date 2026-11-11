@@ -45,7 +45,7 @@ def canonical_url(url: str) -> str:
 
 
 def lead_id(url: str) -> str:
-    return hashlib.sha1(canonical_url(url).encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha1(canonical_url(url).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
 
 
 def parse_dt(value) -> datetime | None:
@@ -69,4 +69,4 @@ def parse_dt(value) -> datetime | None:
 
 def clip(s: str, n: int) -> str:
     s = s or ""
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+    return s if len(s) <= n else s[: n - 1].rstrip() + "\u2026"

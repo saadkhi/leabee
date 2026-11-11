@@ -231,9 +231,9 @@ def test_ip_classification():
 
 # ----------------------------------------------------------------------------- secrets: redaction and scanning
 def test_redaction_of_tokens_in_text_and_logs(monkeypatch, caplog):
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456789:AAEhBP0abcdefghijklmnopqrstuvwxyz12")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:hunter2pass@ep-x.neon.tech/db")
-    msg = "HTTPSConnectionPool: https://api.telegram.org/bot123456789:AAEhBP0abcdefghijklmnopqrstuvwxyz12/getUpdates failed; postgresql://user:hunter2pass@ep-x.neon.tech/db"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456789:AAEhBP0abcdefghijklmnopqrstuvwxyz12")   # leabee:allow-secret (fake test value)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:hunter2pass@ep-x.neon.tech/db")   # leabee:allow-secret (fake test value)
+    msg = "HTTPSConnectionPool: https://api.telegram.org/bot123456789:AAEhBP0abcdefghijklmnopqrstuvwxyz12/getUpdates failed; postgresql://user:hunter2pass@ep-x.neon.tech/db"   # leabee:allow-secret (fake test value)
     out = sec.redact(msg)
     assert "AAEhBP0" not in out and "hunter2pass" not in out and "api.telegram.org/bot***" in out
     sec.install_log_redaction()
@@ -244,9 +244,9 @@ def test_redaction_of_tokens_in_text_and_logs(monkeypatch, caplog):
 
 
 def test_secret_scanner():
-    assert sec.scan_secrets("key = sk-abcdefghijklmnopqrstuvwxyz123456") == ["TinyFish/OpenAI-style key"]
-    assert "GitHub token" in sec.scan_secrets("t=ghp_" + "a" * 36) and "Private key" in sec.scan_secrets("-----BEGIN RSA PRIVATE KEY-----")
-    assert "Database URL with password" in sec.scan_secrets("postgresql://admin:S3cretPass@db.neon.tech/x")
+    assert sec.scan_secrets("key = sk-abcdefghijklmnopqrstuvwxyz123456") == ["TinyFish/OpenAI-style key"]   # leabee:allow-secret (fake test value)
+    assert "GitHub token" in sec.scan_secrets("t=ghp_" + "a" * 36) and "Private key" in sec.scan_secrets("-----BEGIN RSA PRIVATE KEY-----")   # leabee:allow-secret (fake test value)
+    assert "Database URL with password" in sec.scan_secrets("postgresql://admin:S3cretPass@db.neon.tech/x")   # leabee:allow-secret (fake test value)
     assert sec.scan_secrets("DATABASE_URL=postgresql://user:pass@host/db and sk-your_key_here and TOKEN=") == []     # placeholders are ignored
 
 

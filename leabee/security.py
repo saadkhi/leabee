@@ -221,6 +221,7 @@ SAFE_HINTS = ("example", "your_", "xxxx", "<", "changeme", "localhost", "127.0.0
 def scan_secrets(text: str) -> list[str]:
     """Names of secret types found in `text` (ignores obvious placeholders)."""
     found = []
+    text = "\n".join(l for l in (text or "").splitlines() if "leabee:allow-secret" not in l)     # deliberate test fixtures
     for name, rx in SECRET_PATTERNS.items():
         for m in rx.finditer(text or ""):
             if not any(h in m.group(0).lower() for h in SAFE_HINTS):

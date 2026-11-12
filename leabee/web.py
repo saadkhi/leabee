@@ -203,7 +203,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     def index():
         return render_template("index.html", categories=sorted(CATEGORY_PATTERNS), statuses=STATUSES,
                                sources=ALL_SOURCES, hot=cfg.get("hot_score", 70), readonly=readonly,
-                               remote_collect=remote_collect)
+                               remote_collect=remote_collect, copilot=not os.environ.get("VERCEL") or bool(os.environ.get("PARLANT_URL")))
 
     @app.get("/insights")
     def insights():
@@ -232,6 +232,8 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     @app.post("/api/copilot/ask")
     def copilot_ask():
         from .copilot.client import ask
+        if os.environ.get("VERCEL") and not os.environ.get("PARLANT_URL"):
+            return jsonify(error="The copilot needs its own always-on server, which Vercel's free functions cannot host. Use Find businesses, or set PARLANT_URL."), 503
         b = body()
         msg = str(b.get("message", "")).strip()[:2000]
         if not msg:

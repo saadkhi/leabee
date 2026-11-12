@@ -33,6 +33,14 @@ class OvertureUnavailable(RuntimeError):
     pass
 
 
+def available() -> bool:
+    try:
+        import pyarrow  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @lru_cache(maxsize=1)
 def latest_release() -> str:
     env = os.environ.get("LEABEE_OVERTURE_RELEASE", "").strip()

@@ -3,7 +3,7 @@
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index?__p=/$1" }],
   "functions": {
     "api/index.py": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "includeFiles": "{leabee/**,config.yaml,vercel_data/**}"
     }
   }

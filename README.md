@@ -88,7 +88,9 @@ Every secret lives in **GitHub Actions secrets** or **Vercel environment variabl
 | Variable | Vercel env var | GitHub Actions secret | Notes |
 |---|:-:|:-:|---|
 | `DATABASE_URL` | yes | yes | Neon connection string. On Vercel use the **pooled** one (host has `-pooler`); either works on GitHub |
-| `LEABEE_PASSWORD` | **yes (required)** | | Dashboard login (any username). The site refuses to serve without it |
+| `LEABEE_PASSWORD_HASH` (or `LEABEE_PASSWORD`) | **yes (required)** | | Dashboard login form. Create the hash with `python -m leabee hash-password`. The site refuses to serve without one |
+| `LEABEE_TOTP_SECRET` | recommended | | Authenticator-app 2FA (`python -m leabee totp-setup`) |
+| `LEABEE_DATA_KEY` | recommended | | Encrypts notes and backups (`python -m leabee gen-data-key`) |
 | `GITHUB_DISPATCH_TOKEN` | yes | | Fine-grained token for this repo, permission **Actions: Read and write**; powers the Collect button |
 | `GITHUB_REPO` | yes | | `owner/repo`, e.g. `saadkhi/leabee` |
 | `LEABEE_YOUR_NAME` | optional | | Signs your reply drafts |
@@ -106,6 +108,8 @@ Secrets and variables → Actions; add env vars under the Vercel project → Set
 Notes: Reddit often blocks GitHub's servers; Leabee stops asking a blocked host after 3 refusals and still finds Reddit posts
 through TinyFish. Tables are created automatically on first connect (an advisory lock keeps simultaneous cold starts safe).
 Match regions for speed: Neon in `us-east` pairs with Vercel's default region. The dashboard makes about 20 small queries per load.
+
+**Vercel free (Hobby) limits, and how Leabee fits them**: the dashboard is one Python function (60 s limit) on Neon; collection runs in GitHub Actions. On Vercel, *Find businesses* uses OpenStreetMap only inside a 40-second budget (slow websites are skipped, results are cached for a week); Overture Maps, the Copilot (needs an always-on Parlant server; set `PARLANT_URL` to one you host) and Browser Use run locally or in Actions, not in the function.
 
 **Fallbacks**: without `DATABASE_URL` the Vercel app serves a read-only snapshot (`python -m leabee snapshot`, see
 `leabee/serverless.py`), and `python -m leabee publish` can commit that snapshot to a **private** repo. `python -m leabee backup`

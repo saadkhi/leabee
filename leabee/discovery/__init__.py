@@ -7,6 +7,7 @@ An LLM (OpenRouter free model or local Ollama) is optional and only used to unde
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -114,6 +115,10 @@ def _enrich_one(b: dict, cfg: dict) -> dict:
     return b
 
 
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+BUDGET_S = 40 if ON_VERCEL else 0            # Vercel Hobby functions are short: finish inside the limit (0 = no limit)
+
+
 def find_businesses(request: str, n: int | None = None, cfg: dict | None = None, enrich: bool = True, workers: int = 12, pool_factor: int = 3,
                     store=None, cache_days: int = 7) -> dict:
     """With `store`, results are cached for `cache_days` so repeating a search is instant and does not hit the free servers again."""
@@ -131,13 +136,24 @@ def find_businesses(request: str, n: int | None = None, cfg: dict | None = None,
             hit = None
         if hit and time.time() - hit.get("at", 0) < cache_days * 86400:
             return {**hit["result"], "notes": ["Served from your cache (refreshes weekly)."] + hit["result"].get("notes", [])}
-    res = _find(p, cfg, enrich, workers, pool_factor)
+    res = _find(p, cfg, enrich, workers, pool_factor, deadline=time.time() + BUDGET_S if BUDGET_S else 0.0)
     if store is not None and res.get("businesses"):
         store.set_meta(key, json.dumps({"at": time.time(), "result": res}, ensure_ascii=False))
     return res
 
 
-def _find(p: dict, cfg: dict, enrich: bool, workers: int, pool_factor: int) -> dict:
+def _enrich_until(pool: list[dict], cfg: dict, workers: int, until: float) -> list[dict]:
+    """Enrich in parallel but stop waiting at `until`; businesses not finished in time are returned as they were."""
+    from concurrent.futures import wait
+
+    ex = ThreadPoolExecutor(max_workers=workers)
+    futs = {ex.submit(_enrich_one, b, cfg): b for b in pool}
+    wait(list(futs), timeout=max(1.0, until - time.time()))
+    ex.shutdown(wait=False, cancel_futures=True)
+    return [f.result() if f.done() and not f.cancelled() and f.exception() is None else b for f, b in futs.items()]
+
+
+def _find(p: dict, cfg: dict, enrich: bool, workers: int, pool_factor: int, deadline: float = 0.0) -> dict:
     trade_label, filters = osm.resolve_trade(p["trade"])
     if not filters:
         return {"error": f"I could not map '{p['trade']}' to a business type. Try a common trade such as plumber, electrician, dentist or restaurant.", "businesses": []}
@@ -154,14 +170,19 @@ def _find(p: dict, cfg: dict, enrich: bool, workers: int, pool_factor: int) -> d
     sources, errors = {}, []
 
     def run_osm():
-        elements = osm.overpass(osm.build_query(filters, geo))
+        if deadline:
+            elements = osm.overpass(osm.build_query(filters, geo, timeout=22), timeout=25, tries=1)
+        else:
+            elements = osm.overpass(osm.build_query(filters, geo))
         return [r for r in (osm.element_to_record(el, trade_label) for el in elements) if r]
 
     def run_overture():
         return overture.search(overture.terms_for(trade_label, p["trade"]), geo["bbox"], region=region if not locality else region, locality=locality,
                                limit=max(p["n"] * 25, 300))
     with ThreadPoolExecutor(max_workers=2) as ex:
-        futs = {"OpenStreetMap": ex.submit(run_osm), "Overture Maps": ex.submit(run_overture)}
+        futs = {"OpenStreetMap": ex.submit(run_osm)}
+        if not deadline or overture.available():      # serverless: Overture needs pyarrow and a long S3 scan, so it runs only where it fits
+            futs["Overture Maps"] = ex.submit(run_overture)
         records = []
         for name, f in futs.items():
             try:
@@ -178,8 +199,11 @@ def _find(p: dict, cfg: dict, enrich: bool, workers: int, pool_factor: int) -> d
     records = _dedupe(records)
     pool = sorted(records, key=completeness, reverse=True)[:max(p["n"] * pool_factor, 30)]
     if enrich and pool:
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            pool = list(ex.map(lambda b: _enrich_one(b, cfg), pool))
+        if deadline:
+            pool = _enrich_until(pool, cfg, workers, deadline - 4)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                pool = list(ex.map(lambda b: _enrich_one(b, cfg), pool))
     for b in pool:
         b["completeness"] = completeness(b)
     # bad websites do not count as complete

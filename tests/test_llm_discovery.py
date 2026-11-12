@@ -252,3 +252,31 @@ def test_one_source_down_still_answers_and_both_down_errors(monkeypatch, fake_os
     assert any("unavailable" in n for n in res["notes"]) and "Overture Maps (1)" in res["notes"][0]
     monkeypatch.setattr(overture, "search", lambda *a, **k: (_ for _ in ()).throw(overture.OvertureUnavailable("down")))
     assert "busy or unreachable" in discovery.find_businesses("plumbers in North Carolina", 3, {})["error"]
+
+
+def test_enrich_until_returns_on_time_and_keeps_unfinished(monkeypatch):
+    import time as _t
+    from leabee import discovery as d
+
+    def slow(b, cfg):
+        if b["name"] == "slow":
+            _t.sleep(3)
+        return {**b, "done": True}
+    monkeypatch.setattr(d, "_enrich_one", slow)
+    start = _t.time()
+    out = d._enrich_until([{"name": "fast"}, {"name": "slow"}], {}, 4, _t.time() + 1.2)
+    assert _t.time() - start < 2.5
+    assert out[0].get("done") and not out[1].get("done")
+
+
+def test_copilot_hidden_and_refused_on_vercel(monkeypatch):
+    from leabee.config import load_config
+    from leabee.storage import Store
+    from leabee.web import create_app
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.delenv("PARLANT_URL", raising=False)
+    monkeypatch.delenv("LEABEE_PASSWORD", raising=False)
+    monkeypatch.delenv("LEABEE_PASSWORD_HASH", raising=False)
+    c = create_app(load_config(), Store(":memory:")).test_client()
+    assert b'id="copilotbtn"' not in c.get("/").data
+    assert c.post("/api/copilot/ask", json={"message": "hi"}, headers={"Origin": "http://localhost"}).status_code == 503

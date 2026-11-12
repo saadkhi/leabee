@@ -70,7 +70,7 @@ def resolve_trade(text: str) -> tuple[str, list[str]]:
 
 @lru_cache(maxsize=64)
 def geocode(place: str) -> dict | None:
-    r = requests.get(NOMINATIM, params={"q": place, "format": "jsonv2", "limit": 1, "addressdetails": 1}, headers=_ua(), timeout=30)
+    r = requests.get(NOMINATIM, params={"q": place, "format": "jsonv2", "limit": 1, "addressdetails": 1}, headers=_ua(), timeout=10)
     if r.status_code != 200 or not r.json():
         return None
     g = r.json()[0]
@@ -90,10 +90,10 @@ def build_query(filters: list[str], geo: dict, limit: int = 400, timeout: int = 
     return f"[out:json][timeout:{timeout}];{head}({body});out center tags {limit};"
 
 
-def overpass(query: str, timeout: int = 120) -> list[dict]:
+def overpass(query: str, timeout: int = 120, tries: int = 2) -> list[dict]:
     last = ""
     for url in OVERPASS:
-        for attempt in range(2):
+        for attempt in range(tries):
             try:
                 r = requests.post(url, data={"data": query}, headers=_ua(), timeout=timeout)
             except requests.RequestException as e:

@@ -63,7 +63,7 @@ dialog textarea{min-height:130px}
   <div class="row">
     <button id="findbtn" class="primary">Find businesses</button>
     {% if auth_enabled %}<button id="logout">Log out</button>{% endif %}
-    <button id="copilotbtn">Copilot</button>
+    {% if copilot %}<button id="copilotbtn">Copilot</button>{% endif %}
     <a class="nav" href="/board"><button>Board</button></a>
     <a class="nav" href="/insights"><button>Dashboard</button></a>
     <button class="primary" id="collect" {% if readonly %}hidden{% endif %} title="{% if remote_collect %}Runs on GitHub Actions; takes a few minutes{% endif %}">Collect new leads</button>
@@ -253,7 +253,7 @@ $('fsave').onclick=async()=>{await fsearch(true);loadStats();load()};
 // ---- copilot (Parlant)
 let copSession='';
 function copAdd(who,text){const d=document.createElement('div');d.style.cssText='white-space:pre-wrap;padding:8px 10px;border-radius:8px;background:'+(who==='you'?'var(--bg)':'var(--card)')+';border:1px solid var(--line)';d.textContent=(who==='you'?'You: ':'Copilot: ')+text;$('copmsgs').appendChild(d);d.scrollIntoView()}
-$('copilotbtn').onclick=()=>{$('cop').showModal();$('copin').focus()};
+if($('copilotbtn'))$('copilotbtn').onclick=()=>{$('cop').showModal();$('copin').focus()};
 $('copclose').onclick=()=>$('cop').close();
 async function copSend(){const m=$('copin').value.trim();if(!m)return;$('copin').value='';copAdd('you',m);$('copsend').disabled=true;
   try{const r=await fetch('/api/copilot/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m,session_id:copSession})});const j=await r.json();

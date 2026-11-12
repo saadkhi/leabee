@@ -188,3 +188,9 @@ def test_unprotected_local_mode_needs_no_login(monkeypatch):
     c = create_app(CFG, Store(":memory:")).test_client()
     assert c.get("/").status_code == 200 and c.get("/login").status_code == 302 and 'id="logout"' not in c.get("/").get_data(as_text=True)
     assert c.patch("/api/leads/none", json={"status": "won"}).status_code == 404                # writes work without a token when there is no session
+
+
+def test_favicon_is_served_without_login(secured):
+    app, _ = secured
+    r = app.test_client().get("/favicon.ico")
+    assert r.status_code == 200 and r.mimetype == "image/svg+xml"

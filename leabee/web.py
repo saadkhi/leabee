@@ -19,7 +19,7 @@ from .pipeline import ALL_SOURCES
 from .storage import STATUSES, Store
 
 WRITE_METHODS = ("POST", "PATCH", "PUT", "DELETE")
-OPEN_PATHS = ("/login", "/logout")                           # reachable without a session
+OPEN_PATHS = ("/login", "/logout", "/favicon.ico")                           # reachable without a session
 LOGIN_LIMIT, LOGIN_WINDOW, GLOBAL_LOGIN_LIMIT = 8, 900, 60
 
 
@@ -156,6 +156,11 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     # ---------------------------------------------------------------- login / logout
     def _cookie_name():
         return auth.COOKIE_SECURE if (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https") else auth.COOKIE
+
+    @app.get("/favicon.ico")
+    def favicon():
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#2f6fed"/><text x="16" y="23" font-size="20" text-anchor="middle">&#x1F41D;</text></svg>'
+        return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/login")
     def login_page():

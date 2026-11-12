@@ -68,14 +68,14 @@ def _first(v) -> str:
 
 def search(terms: list[str], bbox: list[float], region: str = "", locality: str = "", limit: int = 300, budget_s: float = 150) -> list[dict]:
     """bbox = [south, north, west, east] (Nominatim order). Returns records shaped like the OpenStreetMap ones."""
+    if not terms or len(bbox) != 4:
+        return []
     try:
         import pyarrow.compute as pc
         import pyarrow.dataset as ds
         from pyarrow import fs
     except ImportError as e:
         raise OvertureUnavailable("pip install pyarrow") from e
-    if not terms or len(bbox) != 4:
-        return []
     south, north, west, east = bbox
     rel = latest_release()
     try:

@@ -4,8 +4,8 @@ import re
 PW = "correct-horse-battery"
 
 
-def login(client, password=PW, code="", headers=None):
-    r = client.post("/login", json={"password": password, "code": code}, headers=headers or {})
+def login(client, password=PW, username="admin", headers=None):
+    r = client.post("/login", json={"username": username, "password": password}, headers=headers or {})
     return r
 
 

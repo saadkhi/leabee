@@ -53,8 +53,7 @@ def run(host: str = "127.0.0.1", online: bool = False) -> list[tuple[str, str, s
         add("FAIL" if problem and exposed else "WARN" if problem else "PASS", "Dashboard password", problem or "set and strong enough (consider LEABEE_PASSWORD_HASH)")
     else:
         add("FAIL" if exposed else "WARN", "Dashboard password", f"not set; {'the app is bound to ' + host + ' and anyone can open it' if exposed else 'fine only while bound to localhost'}")
-    from .auth import totp_secret
-    add("PASS" if totp_secret() else ("WARN" if exposed or plain or hashed else "PASS"), "Two-factor login", "authenticator code required" if totp_secret() else "not enabled: run `python -m leabee totp-setup`" if (plain or hashed) else "no login configured")
+    add("PASS" if os.environ.get("LEABEE_USERNAME", "").strip() not in ("", "admin") or not (plain or hashed) else "WARN", "Login ID", "custom ID set" if os.environ.get("LEABEE_USERNAME", "").strip() not in ("", "admin") else "using the default ID 'admin': set LEABEE_USERNAME to something less guessable")
     add("WARN" if os.environ.get("LEABEE_ALLOW_BASIC") == "1" else "PASS", "HTTP Basic auth", "enabled for scripts (weaker: no lockout per user, ambient browser credentials)" if os.environ.get("LEABEE_ALLOW_BASIC") == "1" else "disabled; session login only")
     from . import crypto
     add("PASS" if crypto.enabled() else "WARN", "Encryption at rest", "notes and backups encrypted (LEABEE_DATA_KEY)" if crypto.enabled() else "not enabled: `python -m leabee gen-data-key` (notes and backups are stored in clear text)")

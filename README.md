@@ -88,8 +88,8 @@ Every secret lives in **GitHub Actions secrets** or **Vercel environment variabl
 | Variable | Vercel env var | GitHub Actions secret | Notes |
 |---|:-:|:-:|---|
 | `DATABASE_URL` | yes | yes | Neon connection string. On Vercel use the **pooled** one (host has `-pooler`); either works on GitHub |
-| `LEABEE_PASSWORD_HASH` (or `LEABEE_PASSWORD`) | **yes (required)** | | Dashboard login form. Create the hash with `python -m leabee hash-password`. The site refuses to serve without one |
-| `LEABEE_TOTP_SECRET` | recommended | | Authenticator-app 2FA (`python -m leabee totp-setup`) |
+| `LEABEE_PASSWORD_HASH` (or `LEABEE_PASSWORD`) | **yes (required)** | | Dashboard login form (ID + password). Create the hash with `python -m leabee hash-password`. The site refuses to serve without one |
+| `LEABEE_USERNAME` | optional | | Login ID (default `admin`) |
 | `LEABEE_DATA_KEY` | recommended | | Encrypts notes and backups (`python -m leabee gen-data-key`) |
 | `GITHUB_DISPATCH_TOKEN` | yes | | Fine-grained token for this repo, permission **Actions: Read and write**; powers the Collect button |
 | `GITHUB_REPO` | yes | | `owner/repo`, e.g. `saadkhi/leabee` |
@@ -222,7 +222,6 @@ Stronger login (all optional, all free):
 
 ```bash
 python -m leabee hash-password     # LEABEE_PASSWORD_HASH instead of a plain password
-python -m leabee totp-setup        # LEABEE_TOTP_SECRET: authenticator-app 2FA
 python -m leabee gen-data-key      # LEABEE_DATA_KEY: encrypt notes and backups
 python -m leabee audit-log         # who logged in, failed, exported, searched
 ```

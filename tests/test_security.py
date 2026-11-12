@@ -13,7 +13,7 @@ from leabee.web import create_app
 
 CFG = {"min_score": 35, "max_age_days": 10 ** 5, "hot_score": 70}
 PW = "correct-horse-battery"
-AUTH = {"Authorization": "Basic " + base64.b64encode(f"u:{PW}".encode()).decode()}
+AUTH = {"Authorization": "Basic " + base64.b64encode(f"admin:{PW}".encode()).decode()}
 
 
 def _lead(i, **kw):
@@ -104,8 +104,8 @@ def test_password_rules_and_scrypt_hash(monkeypatch):
     monkeypatch.delenv("LEABEE_PASSWORD", raising=False)
     c = create_app(CFG, Store(":memory:")).test_client()
     assert c.get("/api/stats").status_code == 401
-    assert c.post("/login", json={"password": "wrong-password-12345"}).status_code == 401
-    assert c.post("/login", json={"password": PW}).status_code == 200 and c.get("/api/stats").status_code == 200      # works with only the hash set
+    assert c.post("/login", json={"username": "admin", "password": "wrong-password-12345"}).status_code == 401
+    assert c.post("/login", json={"username": "admin", "password": PW}).status_code == 200 and c.get("/api/stats").status_code == 200      # works with only the hash set
 
 
 # ----------------------------------------------------------------------------- rate limits and validation

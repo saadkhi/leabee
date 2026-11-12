@@ -1,4 +1,4 @@
-"""Sessions, CSRF tokens, TOTP 2FA, persistent lockout, audit log, encryption at rest, tighter CSP. All data is invented."""
+"""Sessions, CSRF tokens, ID + password login, persistent lockout, audit log, encryption at rest, tighter CSP. All data is invented."""
 import base64
 import time
 
@@ -23,7 +23,7 @@ def _lead(i, **kw):
 
 @pytest.fixture
 def secured(monkeypatch):
-    for v in ("LEABEE_PASSWORD_HASH", "LEABEE_ALLOWED_HOSTS", "VERCEL", "LEABEE_TRUST_PROXY", "LEABEE_TOTP_SECRET", "LEABEE_ALLOW_BASIC", "LEABEE_DATA_KEY"):
+    for v in ("LEABEE_PASSWORD_HASH", "LEABEE_ALLOWED_HOSTS", "VERCEL", "LEABEE_TRUST_PROXY", "LEABEE_ALLOW_BASIC", "LEABEE_DATA_KEY", "LEABEE_USERNAME"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setenv("LEABEE_PASSWORD", PW)
     s = Store(":memory:")
@@ -76,37 +76,21 @@ def test_session_cookie_is_tamper_proof_and_bound(monkeypatch):
     assert auth.read_session(auth.signing_key("another-password-12", "", ""), val, "Mozilla/5.0 A", now=1001) is None   # new password logs everyone out
 
 
-# ----------------------------------------------------------------------------- 2FA
-def test_totp_rfc_vectors_and_replay():
-    secret = base64.b32encode(b"12345678901234567890").decode()
-    assert auth._hotp(secret, 59 // 30) == "287082" and auth._hotp(secret, 1111111109 // 30) == "081804"          # RFC 6238 vectors (6 digits)
-    now = 1_700_000_000
-    code = auth.totp(secret, now)
-    ok, step = auth.verify_totp(secret, code, 0, at=now)
-    assert ok and step == now // 30
-    assert auth.verify_totp(secret, code, step, at=now) == (False, step)                      # the same code cannot be used twice
-    assert auth.verify_totp(secret, auth.totp(secret, now - 30), 0, at=now)[0]                # one step of clock drift is fine
-    assert not auth.verify_totp(secret, auth.totp(secret, now - 120), 0, at=now)[0]
-    assert not auth.verify_totp(secret, "12345", 0, at=now)[0] and not auth.verify_totp(secret, "abcdef", 0, at=now)[0] and not auth.verify_totp(secret, "", 0)[0]
-    assert auth.otpauth_uri("ABC", "me").startswith("otpauth://totp/Leabee:me?secret=ABC")
-    assert len(auth.new_totp_secret()) >= 32
-
-
-def test_login_requires_the_authenticator_code(secured, monkeypatch):
+# ----------------------------------------------------------------------------- ID + password
+def test_login_needs_the_right_id_and_password(secured, monkeypatch):
     app, store = secured
-    secret = auth.new_totp_secret()
-    monkeypatch.setenv("LEABEE_TOTP_SECRET", secret)
-    monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")                                             # even then, Basic is refused with 2FA on
+    c = app.test_client()
+    assert b'id="un"' in c.get("/login").data and b"Authenticator" not in c.get("/login").data
+    assert login(c, username="someone-else").status_code == 401                                # right password, wrong ID
+    assert login(c, "wrong-password-12345").status_code == 401                                 # right ID, wrong password
+    assert c.post("/login", json={"password": PW}).status_code == 401                          # ID missing
+    assert login(c).status_code == 200                                                         # default ID is "admin"
+    monkeypatch.setenv("LEABEE_USERNAME", "saad")
     a2 = create_app(CFG, store)
-    c = a2.test_client()
-    assert b"Authenticator code" in c.get("/login").data
-    assert login(c).status_code == 401 and login(c, code="000000").status_code == 401          # password alone is not enough
-    assert login(c, "wrong-password-12345", auth.totp(secret)).status_code == 401              # nor is a code alone
-    code = auth.totp(secret)
-    assert login(c, code=code).status_code == 200
-    assert login(a2.test_client(), code=code).status_code == 401                               # replay of the same code is refused
-    basic = {"Authorization": "Basic " + base64.b64encode(f"u:{PW}".encode()).decode()}
-    assert a2.test_client().get("/api/stats", headers=basic).status_code == 401
+    assert login(a2.test_client()).status_code == 401 and login(a2.test_client(), username="saad").status_code == 200
+    assert login(a2.test_client(), username="SAAD").status_code == 401                         # exact match
+    old_cookie = c.get_cookie("leabee_session") or c.get_cookie("__Host-leabee_session")
+    assert old_cookie and a2.test_client().get("/api/stats").status_code == 401                # changing the ID invalidates sessions
 
 
 # ----------------------------------------------------------------------------- lockout (database-backed) and Basic fallback
@@ -124,13 +108,13 @@ def test_lockout_is_stored_in_the_database_and_survives_a_new_instance(secured):
 
 def test_basic_auth_only_when_explicitly_allowed(secured, monkeypatch):
     app, store = secured
-    basic = {"Authorization": "Basic " + base64.b64encode(f"u:{PW}".encode()).decode()}
+    basic = {"Authorization": "Basic " + base64.b64encode(f"admin:{PW}".encode()).decode()}
     assert app.test_client().get("/api/stats", headers=basic).status_code == 401              # off by default
     monkeypatch.setenv("LEABEE_ALLOW_BASIC", "1")
     a2 = create_app(CFG, store)
     c = a2.test_client()
     assert c.get("/api/stats", headers=basic).status_code == 200 and "WWW-Authenticate" in c.get("/api/stats").headers
-    bad = {"Authorization": "Basic " + base64.b64encode(b"u:wrong-password-xx").decode()}
+    bad = {"Authorization": "Basic " + base64.b64encode(b"admin:wrong-password-xx").decode()}
     assert [c.get("/api/stats", headers=bad).status_code for _ in range(8)] == [401] * 8
     assert c.get("/api/stats", headers=basic).status_code == 429                               # Basic attempts feed the same lockout
 
@@ -199,7 +183,7 @@ def test_csp_styles_use_a_nonce_and_inline_style_is_attribute_only(secured):
 
 
 def test_unprotected_local_mode_needs_no_login(monkeypatch):
-    for v in ("LEABEE_PASSWORD", "LEABEE_PASSWORD_HASH", "LEABEE_TOTP_SECRET"):
+    for v in ("LEABEE_PASSWORD", "LEABEE_PASSWORD_HASH"):
         monkeypatch.delenv(v, raising=False)
     c = create_app(CFG, Store(":memory:")).test_client()
     assert c.get("/").status_code == 200 and c.get("/login").status_code == 302 and 'id="logout"' not in c.get("/").get_data(as_text=True)

@@ -88,7 +88,6 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("--host", default="127.0.0.1", help="the host you run `serve` on (changes how strict the checks are)")
     au.add_argument("--staged", action="store_true", help="only scan the lines about to be committed (used by the pre-commit hook)")
     au.add_argument("--online", action="store_true", help="also check whether the GitHub repository is public")
-    sub.add_parser("totp-setup", help="create an authenticator-app (2FA) secret for LEABEE_TOTP_SECRET")
     sub.add_parser("gen-data-key", help="create LEABEE_DATA_KEY to encrypt notes and backups at rest")
     al = sub.add_parser("audit-log", help="show the security log (logins, lockouts, exports, searches)")
     al.add_argument("-n", type=int, default=50)
@@ -228,16 +227,6 @@ def main(argv: list[str] | None = None) -> int:
         text, code = report(run_audit(a.host, a.online))
         print(text)
         return code
-    if a.cmd == "totp-setup":
-        from .auth import new_totp_secret, otpauth_uri, totp
-        secret = new_totp_secret()
-        print("1. In your authenticator app (Google Authenticator, Authy, 1Password, Aegis...) add an account by typing this key:")
-        print("   " + secret)
-        print("   (or open this link/QR source: " + otpauth_uri(secret) + ")")
-        print("2. Put it in .env / Vercel as:   LEABEE_TOTP_SECRET=" + secret)
-        print("3. Restart. Login then needs your password AND the 6-digit code. Current code for a quick check: " + totp(secret))
-        print("Keep the key private; anyone with it can generate your codes.")
-        return 0
     if a.cmd == "gen-data-key":
         from .crypto import generate_key
         print("Put this in .env / Vercel / GitHub secrets (NOT in the repo). Lose it and encrypted notes and backups are unrecoverable:")

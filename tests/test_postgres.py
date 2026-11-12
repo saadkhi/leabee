@@ -14,7 +14,7 @@ from leabee.web import create_app
 CFG = {"min_score": 35, "max_age_days": 10 ** 5, "hot_score": 70}
 PG_URL = os.environ.get("LEABEE_TEST_PG", "")
 needs_pg = pytest.mark.skipif(not PG_URL, reason="set LEABEE_TEST_PG to run Postgres tests")
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"u:correct-horse-battery").decode()}
+AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct-horse-battery").decode()}
 
 
 def _lead(i, score=60, **kw):

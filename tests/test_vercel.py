@@ -8,7 +8,7 @@ from leabee.storage import Store
 from leabee.web import create_app
 
 CFG = {"min_score": 35, "max_age_days": 10 ** 5, "hot_score": 70}
-AUTH = {"Authorization": "Basic " + base64.b64encode(b"me:correct-horse-battery").decode()}
+AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:correct-horse-battery").decode()}
 
 
 def _lead(i, score=60, **kw):

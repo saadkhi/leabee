@@ -170,8 +170,8 @@ def test_password_protection(monkeypatch):
     c = create_app(CFG, Store(":memory:")).test_client()
     assert c.get("/api/stats").status_code == 401
     import base64
-    ok = {"Authorization": "Basic " + base64.b64encode(b"me:correct-horse-battery").decode()}
-    bad = {"Authorization": "Basic " + base64.b64encode(b"me:wrong-password-here").decode()}
+    ok = {"Authorization": "Basic " + base64.b64encode(b"admin:correct-horse-battery").decode()}
+    bad = {"Authorization": "Basic " + base64.b64encode(b"admin:wrong-password-here").decode()}
     assert c.get("/api/stats", headers=ok).status_code == 200
     assert c.get("/api/stats", headers=bad).status_code == 401
 

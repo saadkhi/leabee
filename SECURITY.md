@@ -8,7 +8,7 @@ not covered. Run `python -m leabee audit` any time to check your own setup.
 1. **Set a strong dashboard password** before anything is reachable from the internet: 12+ random characters in `LEABEE_PASSWORD`, or better a hash:
    `python -m leabee hash-password` then put `LEABEE_PASSWORD_HASH=...` in `.env` / Vercel and delete the plain password. Without one, Vercel serves nothing,
    and `serve --host 0.0.0.0` refuses to start.
-2. **Turn on 2FA and encryption at rest:** `python -m leabee totp-setup` (authenticator app; put `LEABEE_TOTP_SECRET` in `.env` / Vercel) and
+2. **Pick your own login ID and encrypt data at rest:** set `LEABEE_USERNAME` (default `admin`), and run
    `python -m leabee gen-data-key` (`LEABEE_DATA_KEY`: encrypts notes and backups). Back the key up somewhere safe: without it encrypted data is gone.
 3. **Rotate any key you ever pasted into a chat or a commit** (TinyFish key from the early conversation).
 4. Put keys only in `.env` (git-ignored), Vercel environment variables or GitHub secrets. Never in `config.yaml`, code, issues or chat.
@@ -23,7 +23,7 @@ not covered. Run `python -m leabee audit` any time to check your own setup.
 
 | Threat | Protection | Where |
 |---|---|---|
-| Stolen or forged login | Signed, expiring session cookies bound to the browser's user agent; changing the password or TOTP secret invalidates every session; optional TOTP 2FA (RFC 6238, codes cannot be replayed); HTTP Basic auth is off unless `LEABEE_ALLOW_BASIC=1` | `auth.py`, `web.py` |
+| Stolen or forged login | Signed, expiring session cookies bound to the browser's user agent; changing the ID or password invalidates every session; HTTP Basic auth is off unless `LEABEE_ALLOW_BASIC=1` | `auth.py`, `web.py` |
 | Data at rest | `LEABEE_DATA_KEY` encrypts notes (Fernet) and backups (`.db.enc`; restore with `decrypt-backup`) | `crypto.py`, `storage.py` |
 | No trail of who did what | Audit log of logins, failures, lockouts, exports, searches, deletes: `python -m leabee audit-log` | `storage.py` |
 | Open dashboard | Password required on Vercel; fail-closed on `0.0.0.0`; scrypt hash option; 12-char minimum; timing-safe compare | `web.py`, `security.py`, `cli.py`, `serverless.py` |
@@ -48,7 +48,7 @@ not covered. Run `python -m leabee audit` any time to check your own setup.
 
 * **Serverless rate limits are per instance.** On Vercel each instance counts separately, so limits slow abuse rather than stop it. Use Vercel's
   firewall / rate limiting for hard limits, or a long password.
-* **One shared login.** There is a single password (plus optional 2FA), not per-user accounts. For teams, put the app behind Cloudflare Access or an
+* **One shared login.** There is a single ID and password, no 2FA and no per-user accounts. For teams, put the app behind Cloudflare Access or an
   identity-aware proxy.
 * **Only notes and backups are encrypted by Leabee** (when `LEABEE_DATA_KEY` is set). Lead fields stay searchable in clear text, so `data/leads.db` and
   `.env` still rely on your disk encryption.

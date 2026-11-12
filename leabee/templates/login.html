@@ -11,12 +11,12 @@ button{width:100%;margin-top:16px;font:inherit;border:0;border-radius:8px;paddin
 button:disabled{opacity:.6}#err{color:var(--hot);font-size:13px;min-height:18px;margin-top:10px}
 </style></head><body>
 <form id="f" autocomplete="on"><h1>&#x1F41D; Leabee</h1>
-<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required autofocus>
-{% if totp_required %}<label for="code">Authenticator code</label><input id="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code" required>{% endif %}
+<label for="un">ID</label><input id="un" autocomplete="username" required autofocus>
+<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
 <button id="go" type="submit">Log in</button><div id="err" role="alert"></div></form>
 <script nonce="{{ csp_nonce }}">
 document.getElementById('f').addEventListener('submit',async e=>{e.preventDefault();var b=document.getElementById('go'),er=document.getElementById('err');b.disabled=true;er.textContent='';
- try{var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value,code:(document.getElementById('code')||{}).value||''})});
+ try{var r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('un').value,password:document.getElementById('pw').value})});
   if(r.ok){location.href='/';return}var j=await r.json().catch(function(){return{}});er.textContent=r.status===429?'Too many attempts. Try again later.':(j.error||'Login failed')}
  catch(x){er.textContent='Could not reach the server'}b.disabled=false});
 </script></body></html>

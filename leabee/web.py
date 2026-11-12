@@ -42,9 +42,8 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     plain_pw, hashed_pw = sec.configured_secret()
     password_set = bool(plain_pw or hashed_pw)
     hosts = sec.allowed_hosts(password_set)
-    totp = auth.totp_secret()
-    allow_basic = os.environ.get("LEABEE_ALLOW_BASIC") == "1" and not totp      # Basic auth: scripts only, never with 2FA
-    key = auth.signing_key(plain_pw, hashed_pw, totp) if password_set else b""
+    allow_basic = os.environ.get("LEABEE_ALLOW_BASIC") == "1"                    # Basic auth: scripts only
+    key = auth.signing_key(plain_pw, hashed_pw, auth.username()) if password_set else b""
 
     def audit(event: str, detail: str = ""):
         try:
@@ -82,7 +81,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             elif allow_basic and request.authorization:                          # optional, for scripts; counts toward lockout
                 if locked(ip):
                     return deny("Too many failed logins. Try again later.", 429, Retry_After=LOGIN_WINDOW)
-                if sec.verify_password(request.authorization.password or "", plain_pw, hashed_pw):
+                if auth.username_ok(request.authorization.username or "") and sec.verify_password(request.authorization.password or "", plain_pw, hashed_pw):
                     g.authed = True
                 else:
                     limiter.add(f"fail:{ip}")
@@ -162,7 +161,7 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
     def login_page():
         if not password_set or g.authed:
             return redirect("/")
-        return render_template("login.html", totp_required=bool(totp))
+        return render_template("login.html")
 
     @app.post("/login")
     def login():
@@ -173,15 +172,12 @@ def create_app(cfg: dict, store: Store, readonly: bool = False, remote_collect: 
             audit("lockout", "login blocked")
             return deny("Too many failed logins. Try again later.", 429, Retry_After=LOGIN_WINDOW)
         b = body()
-        ok = sec.verify_password(str(b.get("password", ""))[:200], plain_pw, hashed_pw)
-        if ok and totp:
-            ok, step = auth.verify_totp(totp, str(b.get("code", ""))[:12], int(store.get_meta("totp_last", "0") or 0))
-            if ok:
-                store.set_meta("totp_last", str(step))                 # each code works once (replay protection)
+        pw_ok = sec.verify_password(str(b.get("password", ""))[:200], plain_pw, hashed_pw)       # always checked, so timing never reveals the ID
+        ok = auth.username_ok(str(b.get("username", ""))[:64]) and pw_ok
         if not ok:
             limiter.add(f"fail:{ip}")
             store.log_event("login_fail", ip, "form")
-            return jsonify(error="Invalid credentials"), 401           # never say which factor was wrong
+            return jsonify(error="Invalid credentials"), 401           # never say whether the ID or the password was wrong
         value, _csrf = auth.make_session(key, request.headers.get("User-Agent", ""))
         resp = jsonify(ok=True)
         resp.set_cookie(_cookie_name(), value, max_age=auth.SESSION_TTL, httponly=True, samesite="Strict", path="/",

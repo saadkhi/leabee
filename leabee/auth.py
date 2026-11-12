@@ -1,9 +1,8 @@
-"""Sessions and two-factor login (standard library only).
+"""Sessions for the ID + password login (standard library only).
 
 * Session cookie: HMAC-SHA256-signed payload {expiry, csrf token, browser fingerprint}. HttpOnly, SameSite=Strict, Secure on HTTPS (with the
-  `__Host-` prefix there). The signing key is derived from your password (hash) and TOTP secret, so changing either logs everyone out.
-* Two-factor: optional TOTP (RFC 6238, works with Google Authenticator, Authy, 1Password, Aegis...). Codes cannot be replayed.
-* HTTP Basic is only accepted when LEABEE_ALLOW_BASIC=1 and no TOTP secret is set (for scripts)."""
+  `__Host-` prefix there). The signing key is derived from your ID and password (hash), so changing either logs everyone out.
+* HTTP Basic is only accepted when LEABEE_ALLOW_BASIC=1 (for scripts)."""
 from __future__ import annotations
 
 import base64
@@ -21,9 +20,9 @@ COOKIE_SECURE = "__Host-leabee_session"
 
 
 # ------------------------------------------------------------------------------------------------ sessions
-def signing_key(plain: str, hashed: str, totp_secret: str) -> bytes:
-    """Derived from the credentials: rotating the password or the TOTP secret invalidates every session."""
-    material = f"{hashed or plain}|{totp_secret}|{os.environ.get('LEABEE_SESSION_SALT', '')}".encode()
+def signing_key(plain: str, hashed: str, user: str = "") -> bytes:
+    """Derived from the credentials: rotating the password or the ID invalidates every session."""
+    material = f"{hashed or plain}|{user}|{os.environ.get('LEABEE_SESSION_SALT', '')}".encode()
     return hmac.new(b"leabee-session-v1", material, hashlib.sha256).digest()
 
 
@@ -62,38 +61,11 @@ def read_session(key: bytes, value: str, user_agent: str = "", now: float | None
         return None
 
 
-# ------------------------------------------------------------------------------------------------ TOTP (RFC 6238)
-def new_totp_secret() -> str:
-    return base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+# ------------------------------------------------------------------------------------------------ username
+def username() -> str:
+    """The login ID (LEABEE_USERNAME, default "admin")."""
+    return os.environ.get("LEABEE_USERNAME", "").strip()[:64] or "admin"
 
 
-def _hotp(secret_b32: str, counter: int, digits: int = 6) -> str:
-    key = base64.b32decode(secret_b32.upper() + "=" * (-len(secret_b32) % 8))
-    h = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
-    off = h[-1] & 0x0F
-    return str((struct.unpack(">I", h[off:off + 4])[0] & 0x7FFFFFFF) % 10 ** digits).zfill(digits)
-
-
-def totp(secret_b32: str, at: float | None = None, step: int = 30) -> str:
-    return _hotp(secret_b32, int((at or time.time()) // step))
-
-
-def verify_totp(secret_b32: str, code: str, last_step: int = 0, at: float | None = None, step: int = 30, window: int = 1) -> tuple[bool, int]:
-    """(ok, step used). Accepts the previous/next 30 s window for clock drift; a step at or below `last_step` is a replay and is refused."""
-    code = (code or "").strip().replace(" ", "")
-    if not (code.isdigit() and len(code) == 6):
-        return False, last_step
-    now_step = int((at or time.time()) // step)
-    for s in range(now_step - window, now_step + window + 1):
-        if s > last_step and hmac.compare_digest(_hotp(secret_b32, s), code):
-            return True, s
-    return False, last_step
-
-
-def otpauth_uri(secret_b32: str, account: str = "admin", issuer: str = "Leabee") -> str:
-    from urllib.parse import quote
-    return f"otpauth://totp/{quote(issuer)}:{quote(account)}?secret={secret_b32}&issuer={quote(issuer)}&algorithm=SHA1&digits=6&period=30"
-
-
-def totp_secret() -> str:
-    return os.environ.get("LEABEE_TOTP_SECRET", "").strip().replace(" ", "")
+def username_ok(given: str) -> bool:
+    return hmac.compare_digest(str(given or "").strip().encode(), username().encode())

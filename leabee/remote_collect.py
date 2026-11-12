@@ -51,7 +51,13 @@ def dispatch(sources: list[str], partial: bool = True, enrich: bool = True) -> t
         return False, f"could not reach GitHub: {e.__class__.__name__}"
     if r.status_code == 204:
         return True, "Collection started on GitHub Actions."
-    return False, f"GitHub refused the request ({r.status_code}): {r.text[:200]}"
+    hints = {401: "the token is invalid or expired: create a new one and update GITHUB_DISPATCH_TOKEN in Vercel, then redeploy.",
+             403: f"the token cannot start workflows. In GitHub, edit the fine-grained token: Resource owner = your account, Repository access = {repo()}, "
+                  "Repository permissions > Actions = Read and write. Then update GITHUB_DISPATCH_TOKEN in Vercel and redeploy.",
+             404: f"GitHub cannot find the repository or workflow. Check GITHUB_REPO ({repo()}) and that .github/workflows/{WORKFLOW} exists on branch "
+                  f"{os.environ.get('GITHUB_BRANCH', 'main')}; a token without access to the repo also gives 404.",
+             422: f"the branch {os.environ.get('GITHUB_BRANCH', 'main')} or the workflow inputs were rejected by GitHub."}
+    return False, f"GitHub refused the request ({r.status_code}): {hints.get(r.status_code, r.text[:200])}"
 
 
 def status() -> dict:

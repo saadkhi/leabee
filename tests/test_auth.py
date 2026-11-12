@@ -194,3 +194,15 @@ def test_favicon_is_served_without_login(secured):
     app, _ = secured
     r = app.test_client().get("/favicon.ico")
     assert r.status_code == 200 and r.mimetype == "image/svg+xml"
+
+
+def test_dispatch_403_explains_how_to_fix_the_token(monkeypatch):
+    from leabee import remote_collect as rc
+
+    class R:
+        status_code, text = 403, '{"message":"Resource not accessible by personal access token"}'
+    monkeypatch.setenv("GITHUB_DISPATCH_TOKEN", "x" * 20)
+    monkeypatch.setenv("GITHUB_REPO", "me/proj")
+    monkeypatch.setattr(rc.requests, "post", lambda *a, **k: R())
+    ok, msg = rc.dispatch(["reddit"])
+    assert not ok and "Actions = Read and write" in msg and "me/proj" in msg and "x" * 20 not in msg
